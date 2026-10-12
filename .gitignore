@@ -1,0 +1,20 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/db.sqlite3
+backend/staticfiles/
+
+# Web
+web/node_modules/
+web/dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+
+migrations/
+*/migrations/
+**/migrations/
