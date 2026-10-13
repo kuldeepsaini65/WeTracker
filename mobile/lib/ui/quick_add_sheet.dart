@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../models.dart';
 import '../store.dart';
+import 'categories_screen.dart';
 import 'common.dart';
 
 bool _sheetOpen = false;
@@ -195,7 +196,8 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 scrollDirection: Axis.horizontal,
-                itemCount: store.categories.length + 1,
+                // Yesterday · categories · "+ New" (when this user may create categories)
+                itemCount: store.categories.length + 1 + ((store.user?.canManageCategories ?? true) ? 1 : 0),
                 separatorBuilder: (_, _) => const SizedBox(width: 8),
                 itemBuilder: (_, i) {
                   if (i == 0) {
@@ -203,6 +205,16 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
                       label: const Text('Yesterday'),
                       selected: _yesterday,
                       onSelected: (v) => setState(() => _yesterday = v),
+                    );
+                  }
+                  if (i > store.categories.length) {
+                    return ActionChip(
+                      avatar: const Icon(Icons.add, size: 18),
+                      label: const Text('New'),
+                      onPressed: () async {
+                        final created = await showCategoryEditor(context);
+                        if (created != null && mounted) setState(() => _picked = created);
+                      },
                     );
                   }
                   final c = store.categories[i - 1];

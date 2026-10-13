@@ -18,6 +18,7 @@ class AppUser {
     this.role = 'user',
     this.senior,
     this.inviteCode,
+    this.canManageCategories = true,
   });
 
   final int id;
@@ -35,6 +36,9 @@ class AppUser {
   /// Seniors only.
   final String? inviteCode;
 
+  /// False for users in a senior's team — the senior owns the category list.
+  final bool canManageCategories;
+
   bool get isSenior => role == 'senior';
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
@@ -46,19 +50,23 @@ class AppUser {
     role: j['role'] ?? 'user',
     senior: j['senior'] == null ? null : Person.fromJson(j['senior']),
     inviteCode: j['invite_code'],
+    canManageCategories: j['can_manage_categories'] ?? true,
   );
 }
 
 class Category {
-  Category({required this.id, required this.name, required this.icon, required this.color});
+  Category({required this.id, required this.name, required this.icon, required this.color, this.keywords = ''});
 
   final int id;
   final String name;
   final String icon;
   final String color;
 
+  /// Comma-separated words that make quick add pick this category. Not sent in brief/nested payloads.
+  final String keywords;
+
   factory Category.fromJson(Map<String, dynamic> j) =>
-      Category(id: j['id'], name: j['name'], icon: j['icon'] ?? '🏷️', color: j['color'] ?? '#6366f1');
+      Category(id: j['id'], name: j['name'], icon: j['icon'] ?? '🏷️', color: j['color'] ?? '#6366f1', keywords: j['keywords'] ?? '');
 }
 
 class Expense {

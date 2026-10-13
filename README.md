@@ -20,6 +20,18 @@ Expense tracker built around **fast entry**: if logging takes more than a couple
 - **Android:** opens straight to an on-screen keypad (toggle in Settings), long-press the app icon → *Add expense*,
   and entries are queued **offline** and synced later (server de-duplicates by `client_id`).
 
+## Seniors and their users
+
+- **Senior** — signs up as "I'm a senior" (or taps *Become a senior* in Settings) and gets an 8-character **invite code**
+  (plus a shareable link `https://<web>/?invite=CODE`).
+- **User** — enters the code at sign-up or later in Settings. From then on:
+  - the senior can **see all of their expenses** (read-only) on the **Team** page / tab: totals per person and per category,
+    daily chart, a filterable feed, and a members table;
+  - the user picks from the **senior's category list** (they can't edit it). On joining, their existing expenses are matched
+    to the senior's categories by name; the rest go to their Inbox.
+- Users can **leave**; seniors can **remove** a user or **regenerate** the code. Either way the user gets default categories back.
+- Accounts without a senior work as **personal** accounts, unchanged.
+
 ## Run it
 
 ### Backend
@@ -53,7 +65,7 @@ flutter build apk --release --dart-define=API_URL=https://api.example.com
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/auth/register/`, `/api/auth/login/`, `/api/auth/refresh/` | Email + password, JWT |
+| POST | `/api/auth/register/`, `/api/auth/login/`, `/api/auth/refresh/` | Email + password, JWT. Register takes `account_type` (`personal`/`senior`) or `invite_code` |
 | GET/PATCH | `/api/auth/me/` | Name, currency, monthly budget |
 | CRUD | `/api/categories/` | Name, emoji icon, colour, keywords |
 | GET | `/api/categories/suggest/?note=` | Category guess for a note |
@@ -63,3 +75,9 @@ flutter build apk --release --dart-define=API_URL=https://api.example.com
 | POST | `/api/expenses/bulk-categorize/` | Categorise many at once |
 | GET | `/api/expenses/frequent/` | One-tap repeat candidates |
 | GET | `/api/stats/summary/` | Totals, by-category, daily, previous period |
+| GET | `/api/team/` | Seniors: invite code + members with this month's totals. Users: their senior |
+| POST | `/api/team/become-senior/`, `/api/team/regenerate-code/` | Senior setup |
+| POST | `/api/team/join/`, `/api/team/leave/` | Join / leave with an invite code |
+| DELETE | `/api/team/members/{id}/` | Senior removes a user |
+| GET | `/api/team/expenses/` | Seniors: every team expense, read-only (`member=` filter) |
+| GET | `/api/team/summary/` | Seniors: team totals, by person, by category, daily |

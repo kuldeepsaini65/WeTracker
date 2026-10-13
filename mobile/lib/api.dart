@@ -129,6 +129,19 @@ class Api {
   // ---- Data ----
   Future<List<Category>> categories() async => (await request('GET', '/categories/') as List).map((j) => Category.fromJson(j)).toList();
 
+  Future<Category> saveCategory({
+    int? id,
+    required String name,
+    required String icon,
+    required String color,
+    required String keywords,
+  }) async {
+    final body = {'name': name, 'icon': icon, 'color': color, 'keywords': keywords};
+    return Category.fromJson(await request(id == null ? 'POST' : 'PATCH', id == null ? '/categories/' : '/categories/$id/', body: body));
+  }
+
+  Future<void> deleteCategory(int id) async => request('DELETE', '/categories/$id/');
+
   Future<Category?> suggestCategory(String note) async {
     final d = await request('GET', '/categories/suggest/', query: {'note': note});
     return d == null ? null : Category.fromJson(d);

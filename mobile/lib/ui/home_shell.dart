@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../store.dart';
+import 'categories_screen.dart';
 import 'common.dart';
 import 'edit_expense_sheet.dart';
 import 'login_screen.dart' show currencies;
@@ -599,6 +600,17 @@ class _SettingsTabState extends State<_SettingsTab> {
           trailing: const Icon(Icons.chevron_right),
           onTap: _editBudget,
         ),
+        ListTile(
+          leading: const Icon(Icons.sell_outlined),
+          title: const Text('Categories'),
+          subtitle: Text(
+            u?.canManageCategories == false
+                ? 'Managed by ${u?.senior?.name ?? 'your senior'}'
+                : '${store.categories.length} categories · icons, colours & keywords',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CategoriesScreen())),
+        ),
         const Divider(),
         if (u?.isSenior == true) ...[
           const ListTile(leading: Icon(Icons.groups), title: Text('You\'re a senior'), subtitle: Text('See your users in the Team tab')),
@@ -627,10 +639,7 @@ class _SettingsTabState extends State<_SettingsTab> {
             }, 'You\'re a senior now — share your invite code'),
           ),
         ],
-        const ListTile(
-          title: Text('Tip'),
-          subtitle: Text('Long-press the app icon for an "Add expense" shortcut. Manage categories & keywords on the web app.'),
-        ),
+        const ListTile(title: Text('Tip'), subtitle: Text('Long-press the app icon for an "Add expense" shortcut.')),
         const Divider(),
         ListTile(leading: const Icon(Icons.logout), title: const Text('Log out'), onTap: store.logout),
       ],
