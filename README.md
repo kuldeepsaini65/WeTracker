@@ -43,6 +43,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 - Swagger UI: http://localhost:8000/api/docs/ · ReDoc: `/api/redoc/` · OpenAPI: `/api/schema/`
 - Tests: `.venv/bin/python manage.py test`
+- Default categories/keywords live in `backend/expenses/defaults.py` (English + Hinglish). After editing, update existing
+  accounts with `.venv/bin/python manage.py sync_default_categories` (add `--dry-run` to preview). User-created categories are never touched.
 - Production env vars: `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=0`, `DJANGO_ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`.
 
 ### Web

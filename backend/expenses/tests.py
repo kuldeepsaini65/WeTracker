@@ -15,6 +15,27 @@ class DefaultsTests(APITestCase):
         for row in DEFAULT_CATEGORIES:
             self.assertEqual(len(row), 4, f'{row[0]}: use (name, icon, colour, "kw1,kw2,...")')
 
+    def test_keywords_are_unique_across_categories(self):
+        # The first matching category wins, so a shared keyword would always go to the earlier one.
+        seen = {}
+        for name, _, _, keywords in DEFAULT_CATEGORIES:
+            for kw in (k.strip().lower() for k in keywords.split(',') if k.strip()):
+                self.assertNotIn(kw, seen, f'"{kw}" is in both {seen.get(kw)} and {name}')
+                seen[kw] = name
+
+    def test_hinglish_notes(self):
+        user = User.objects.create_user('h@b.com', 'h@b.com', 'pw-123456!')
+        setup_new_user(user)
+        cases = {
+            '120 sabzi': 'Groceries', '40 cutting chai': 'Coffee & Tea', '30 vada pav': 'Food',
+            '60 auto': 'Transport', '1500 bijli bill': 'Bills', '850 gas cylinder': 'Bills',
+            '200 dawai': 'Health', '500 daaru party': 'Party', '20 sutta': 'Cigarettes',
+            '300 movie ticket': 'Entertainment', '2k petrol': 'Fuel', '700 kapde': 'Shopping',
+        }
+        for text, expected in cases.items():
+            p = parse_quick(user, text)
+            self.assertEqual(p.category and p.category.name, expected, text)
+
 
 class QuickParseTests(APITestCase):
     def setUp(self):
@@ -211,3 +232,32 @@ class TeamTests(APITestCase):
         u = self.register('u5@x.com', invite_code=self.code)
         self.auth(u)
         self.assertEqual(self.client.post('/api/team/become-senior/').status_code, 400)
+
+
+class SyncDefaultsCommandTests(APITestCase):
+    def test_sync_adds_missing_and_fixes_conflicts_without_touching_custom(self):
+        from django.core.management import call_command
+        from io import StringIO
+
+        from .models import Category
+
+        user = User.objects.create_user('old@b.com', 'old@b.com', 'pw-123456!')
+        Category.objects.create(user=user, name='Entertainment', keywords='movie,party,my-own')
+        Category.objects.create(user=user, name='Fuel', keywords='petrol,gas')
+        Category.objects.create(user=user, name='Cigret', keywords='sutta,advance')
+        Category.objects.create(user=user, name='Pets', keywords='dog')
+        call_command('sync_default_categories', stdout=StringIO())
+        cats = {c.name: c for c in user.categories.all()}
+        self.assertEqual(len(cats), len(DEFAULT_CATEGORIES) + 1)  # + Pets
+        ent = cats['Entertainment'].keyword_list
+        self.assertNotIn('party', ent)       # belongs to Party now
+        self.assertIn('my-own', ent)         # user's own keyword kept
+        self.assertIn('cinema', ent)         # new default added
+        self.assertNotIn('gas', cats['Fuel'].keyword_list)
+        self.assertNotIn('advance', cats['Cigarettes'].keyword_list)
+        self.assertEqual(cats['Pets'].keywords, 'dog')
+        self.assertEqual(parse_quick(user, '500 party').category.name, 'Party')
+        # Running again changes nothing
+        out = StringIO()
+        call_command('sync_default_categories', stdout=out)
+        self.assertIn('Made 0 changes', out.getvalue())
