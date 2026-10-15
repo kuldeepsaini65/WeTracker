@@ -6,7 +6,7 @@ import { Breakdown, PeriodPicker } from '../components/Breakdown'
 import { DailyChart } from '../components/DailyChart'
 import { ExpenseList } from '../components/ExpenseList'
 import { QuickAdd } from '../components/QuickAdd'
-import { Card, CategoryIcon, Empty } from '../components/ui'
+import { Card, CategoryIcon, Empty, LoadError } from '../components/ui'
 import { useAuth, useCurrency } from '../lib/auth'
 import { money, periodRange, type Period } from '../lib/format'
 import { useExpenses, useSummary } from '../lib/queries'
@@ -17,8 +17,9 @@ export function Dashboard() {
   const [period, setPeriod] = useState<Period>('month')
   const [offset, setOffset] = useState(0)
   const range = useMemo(() => periodRange(period, offset), [period, offset])
-  const { data: s } = useSummary(range.start, range.end)
+  const { data: s, error: summaryError, refetch: refetchSummary } = useSummary(range.start, range.end)
   const recent = useExpenses({ limit: 8 })
+  const recentFailed = recent.isError && !recent.data
 
   const total = Number(s?.total ?? 0)
   const prev = Number(s?.previous_total ?? 0)
@@ -53,7 +54,9 @@ export function Dashboard() {
 
       <PeriodPicker period={period} label={range.label} offset={offset} onPeriod={setPeriod} onOffset={setOffset} />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {summaryError && <LoadError error={summaryError} onRetry={() => refetchSummary()} />}
+
+      <div className={summaryError ? 'pointer-events-none grid gap-4 opacity-40 md:grid-cols-3' : 'grid gap-4 md:grid-cols-3'}>
         <Card className="md:col-span-1">
           <p className="text-sm text-zinc-500">Spent</p>
           <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums">{money(total, currency)}</p>
@@ -99,7 +102,9 @@ export function Dashboard() {
               See all
             </Link>
           </div>
-          {recent.data?.results.length ? (
+          {recentFailed ? (
+            <LoadError error={recent.error} onRetry={() => recent.refetch()} what="recent expenses" />
+          ) : recent.data?.results.length ? (
             <ExpenseList expenses={recent.data.results} />
           ) : (
             <Card>

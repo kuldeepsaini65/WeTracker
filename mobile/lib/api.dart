@@ -183,8 +183,12 @@ class Api {
 
   Future<void> becomeSenior() async => request('POST', '/team/become-senior/');
 
-  Future<List<TeamMember>> teamMembers() async =>
-      ((await request('GET', '/team/'))['members'] as List).map((j) => TeamMember.fromJson(j)).toList();
+  Future<List<TeamMember>> teamMembers() async {
+    // "This month" per member = this phone's local calendar month
+    final now = DateTime.now();
+    final d = await request('GET', '/team/', query: {'start': DateTime(now.year, now.month).toUtc().toIso8601String()});
+    return (d['members'] as List).map((j) => TeamMember.fromJson(j)).toList();
+  }
 
   Future<List<Expense>> teamExpenses({int? member, int limit = 100}) async {
     final d = await request('GET', '/team/expenses/', query: {'limit': '$limit', if (member != null) 'member': '$member'});

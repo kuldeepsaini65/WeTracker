@@ -38,6 +38,8 @@ from .teams import (
 )
 
 
+User = get_user_model()
+
 def _tokens_for(user):
     refresh = RefreshToken.for_user(user)
     return {'refresh': str(refresh), 'access': str(refresh.access_token)}
@@ -56,8 +58,11 @@ class EmailTokenSerializer(TokenObtainPairSerializer):
     username_field = 'email'
 
     def validate(self, attrs):
+        email = attrs['email'].strip().lower()
+        # Accounts made with createsuperuser / the admin may have a username that isn't the email.
+        match = User.objects.filter(email__iexact=email).order_by('id').first()
         user = authenticate(self.context.get('request'),
-                            username=attrs['email'].lower(), password=attrs['password'])
+                            username=match.username if match else email, password=attrs['password'])
         if user is None or not user.is_active:
             raise AuthenticationFailed('Invalid email or password.')
         return {**_tokens_for(user), 'user': MeSerializer(user).data}
@@ -239,11 +244,29 @@ class ExpenseViewSet(viewsets.ModelViewSet):
 
 # ---------- Stats ----------
 
+# Old names browsers still report, but which newer tz databases (e.g. Ubuntu 24.04 without tzdata-legacy) drop.
+TZ_ALIASES = {
+    'Asia/Calcutta': 'Asia/Kolkata', 'Asia/Katmandu': 'Asia/Kathmandu', 'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+    'Asia/Rangoon': 'Asia/Yangon', 'Asia/Dacca': 'Asia/Dhaka', 'Asia/Thimbu': 'Asia/Thimphu',
+    'Asia/Ulan_Bator': 'Asia/Ulaanbaatar', 'Asia/Macao': 'Asia/Macau', 'Europe/Kiev': 'Europe/Kyiv',
+    'America/Buenos_Aires': 'America/Argentina/Buenos_Aires', 'Atlantic/Faeroe': 'Atlantic/Faroe',
+    'Pacific/Truk': 'Pacific/Chuuk', 'Pacific/Ponape': 'Pacific/Pohnpei', 'US/Eastern': 'America/New_York',
+    'US/Central': 'America/Chicago', 'US/Mountain': 'America/Denver', 'US/Pacific': 'America/Los_Angeles',
+}
+
+
 def _zone(name):
-    try:
-        return ZoneInfo(name) if name else dt_timezone.utc
-    except (ZoneInfoNotFoundError, ValueError):
-        raise ValidationError({'tz': f'Unknown time zone "{name}".'})
+    """IANA zone for daily buckets. Never fails a request: unknown names fall back to UTC."""
+    if not name:
+        return dt_timezone.utc
+    for candidate in (name, TZ_ALIASES.get(name)):
+        if not candidate:
+            continue
+        try:
+            return ZoneInfo(candidate)
+        except (ZoneInfoNotFoundError, ValueError):
+            continue
+    return dt_timezone.utc
 
 
 def _parse_dt(value, name):
@@ -312,20 +335,18 @@ class SummaryView(APIView):
 
 # ---------- Team (seniors and their users) ----------
 
-User = get_user_model()
-
 
 def _require_senior(user):
     if not profile_of(user).is_senior:
         raise PermissionDenied('Only seniors can view team data.')
 
 
-def _team_payload(user):
+def _team_payload(user, month_start=None):
     profile = profile_of(user)
     members = []
     if profile.is_senior:
-        now = timezone.now()
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if month_start is None:
+            month_start = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         members = list(
             User.objects.filter(id__in=team_user_ids(user)).select_related('profile').annotate(
                 month_total=Sum('expenses__amount', filter=Q(expenses__spent_at__gte=month_start)),
@@ -341,11 +362,25 @@ def _team_payload(user):
 
 
 class TeamView(APIView):
-    @extend_schema(tags=['team'], responses=TeamSerializer)
+    @extend_schema(tags=['team'], responses=TeamSerializer, parameters=[
+        OpenApiParameter('start', OpenApiTypes.DATETIME, description="Start of the viewer's current month"),
+        OpenApiParameter('tz', str, description='IANA time zone, used when start is not given'),
+    ])
     def get(self, request):
-        """Seniors: invite code and every member with this month's totals (calendar month, UTC).
-        Users: the senior they belong to (if any)."""
-        return Response(TeamSerializer(_team_payload(request.user)).data)
+        """Seniors: invite code and every member with this month's totals.
+        Users: the senior they belong to (if any).
+
+        Pass `start` (the start of the month in the viewer's local time, ISO 8601) or `tz` so "this month"
+        matches the viewer's calendar; otherwise the UTC month is used."""
+        return Response(TeamSerializer(_team_payload(request.user, _month_start(request))).data)
+
+
+def _month_start(request):
+    if request.query_params.get('start'):
+        return _parse_dt(request.query_params['start'], 'start')
+    tz = _zone(request.query_params.get('tz'))
+    today = timezone.now().astimezone(tz).date()
+    return datetime.combine(today.replace(day=1), time.min, tzinfo=tz)
 
 
 class BecomeSeniorView(APIView):

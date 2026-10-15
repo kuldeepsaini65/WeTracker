@@ -242,6 +242,7 @@ class SyncDefaultsCommandTests(APITestCase):
         from .models import Category
 
         user = User.objects.create_user('old@b.com', 'old@b.com', 'pw-123456!')
+        user.categories.all().delete()  # simulate an account made before these defaults existed
         Category.objects.create(user=user, name='Entertainment', keywords='movie,party,my-own')
         Category.objects.create(user=user, name='Fuel', keywords='petrol,gas')
         Category.objects.create(user=user, name='Cigret', keywords='sutta,advance')
@@ -261,3 +262,45 @@ class SyncDefaultsCommandTests(APITestCase):
         out = StringIO()
         call_command('sync_default_categories', stdout=out)
         self.assertIn('Made 0 changes', out.getvalue())
+
+
+class RobustnessTests(APITestCase):
+    def setUp(self):
+        r = self.client.post('/api/auth/register/', {'email': 'tz@x.com', 'password': 'super-secret-1'})
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + r.data['access'])
+        self.client.post('/api/expenses/quick/', {'text': '250 coffee'})
+
+    def test_old_and_unknown_time_zones_never_break_stats(self):
+        # Browsers in India report "Asia/Calcutta"; Ubuntu 24.04 servers don't ship that old name.
+        from unittest import mock
+
+        from . import views
+
+        real = views.ZoneInfo
+
+        def strict(name):
+            if name == 'Asia/Calcutta':
+                raise views.ZoneInfoNotFoundError(name)
+            return real(name)
+
+        with mock.patch.object(views, 'ZoneInfo', side_effect=strict):
+            for tz in ('Asia/Calcutta', 'Mars/Olympus_Mons', ''):
+                r = self.client.get(f'/api/stats/summary/?tz={tz}')
+                self.assertEqual(r.status_code, 200, (tz, r.data))
+                self.assertEqual(Decimal(r.data['total']), Decimal('250'))
+            self.assertEqual(views._zone('Asia/Calcutta').key, 'Asia/Kolkata')
+
+    def test_superuser_gets_categories_and_can_log_in_by_email(self):
+        admin = User.objects.create_superuser('admin', 'Admin@Admin.com', 'super-secret-1')
+        self.assertEqual(admin.categories.count(), len(DEFAULT_CATEGORIES))
+        self.client.credentials()
+        r = self.client.post('/api/auth/login/', {'email': 'admin@admin.com', 'password': 'super-secret-1'})
+        self.assertEqual(r.status_code, 200, r.data)
+
+    def test_team_month_follows_viewer_start(self):
+        self.client.post('/api/team/become-senior/')
+        far_future = '2099-01-01T00:00:00+05:30'
+        m = self.client.get('/api/team/', {'start': far_future}).data['members'][0]
+        self.assertEqual(Decimal(m['month_total']), Decimal('0'))
+        m = self.client.get('/api/team/', {'tz': 'Asia/Calcutta'}).data['members'][0]
+        self.assertEqual(Decimal(m['month_total']), Decimal('250'))

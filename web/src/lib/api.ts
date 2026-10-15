@@ -201,4 +201,14 @@ export function qs(params: Record<string, string | number | boolean | undefined 
   return s ? `?${s}` : ''
 }
 
-export const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
+// Some browsers still report retired zone names (India → "Asia/Calcutta"); send the current name.
+const TZ_ALIASES: Record<string, string> = {
+  'Asia/Calcutta': 'Asia/Kolkata',
+  'Asia/Katmandu': 'Asia/Kathmandu',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+  'Asia/Rangoon': 'Asia/Yangon',
+  'Asia/Dacca': 'Asia/Dhaka',
+  'Europe/Kiev': 'Europe/Kyiv',
+}
+const rawTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+export const TZ = TZ_ALIASES[rawTz] ?? rawTz

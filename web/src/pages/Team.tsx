@@ -7,7 +7,7 @@ import { DailyChart } from '../components/DailyChart'
 import { ExpenseList } from '../components/ExpenseList'
 import { InviteCard } from '../components/TeamCards'
 import { useToast } from '../components/Toast'
-import { Button, Card, CategoryIcon, Empty, Input } from '../components/ui'
+import { Button, Card, CategoryIcon, Empty, Input, LoadError } from '../components/ui'
 import { api } from '../lib/api'
 import { useAuth, useCurrency } from '../lib/auth'
 import { money, periodRange, relativeDay, type Period } from '../lib/format'
@@ -28,7 +28,7 @@ function SeniorTeam({ inviteCode }: { inviteCode: string }) {
   const [debounced, setDebounced] = useState('')
   const range = useMemo(() => periodRange(period, offset), [period, offset])
   const { data: team } = useTeam()
-  const { data: s } = useTeamSummary(range.start, range.end, member)
+  const { data: s, error: summaryError, refetch: refetchSummary } = useTeamSummary(range.start, range.end, member)
   const { data: feed } = useTeamExpenses({
     member,
     search: debounced || undefined,
@@ -72,7 +72,9 @@ function SeniorTeam({ inviteCode }: { inviteCode: string }) {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {summaryError && <LoadError error={summaryError} onRetry={() => refetchSummary()} what="team totals" />}
+
+      <div className={summaryError ? 'pointer-events-none grid gap-4 opacity-40 md:grid-cols-3' : 'grid gap-4 md:grid-cols-3'}>
         <Card>
           <p className="text-sm text-zinc-500">{selected ? `${selected.name} spent` : 'Team spent'}</p>
           <p className="mt-1 text-4xl font-bold tracking-tight tabular-nums">{money(total, currency)}</p>

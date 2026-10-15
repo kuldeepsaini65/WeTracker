@@ -117,7 +117,15 @@ export function useDeleteCategory() {
 // ---------- Team (seniors) ----------
 
 export function useTeam(enabled = true) {
-  return useQuery({ queryKey: ['team'], queryFn: () => api<Team>('/team/'), enabled })
+  return useQuery({
+    queryKey: ['team'],
+    // "This month" per member = the viewer's local calendar month
+    queryFn: () => {
+      const now = new Date()
+      return api<Team>(`/team/${qs({ start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), tz: TZ })}`)
+    },
+    enabled,
+  })
 }
 
 export function useTeamSummary(start: Date, end: Date, member?: number) {

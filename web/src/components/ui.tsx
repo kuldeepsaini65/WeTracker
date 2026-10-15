@@ -143,6 +143,19 @@ export function Empty({ icon, title, children }: { icon: ReactNode; title: strin
   )
 }
 
+/** Shown instead of zeros when data failed to load, so a failure never looks like "you spent ₹0". */
+export function LoadError({ error, onRetry, what = 'your numbers' }: { error: unknown; onRetry(): void; what?: string }) {
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm dark:border-rose-500/30 dark:bg-rose-500/10">
+      <span className="flex-1 text-rose-800 dark:text-rose-200">
+        Couldn't load {what}.{' '}
+        <span className="text-rose-600/80 dark:text-rose-300/80">{error instanceof Error ? error.message : ''}</span>
+      </span>
+      <Button variant="soft" className="px-3 py-1.5" onClick={onRetry}>Try again</Button>
+    </div>
+  )
+}
+
 export function Spinner({ className }: { className?: string }) {
   return <span className={clsx('inline-block size-4 animate-spin rounded-full border-2 border-current border-r-transparent', className)} />
 }

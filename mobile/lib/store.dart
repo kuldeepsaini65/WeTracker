@@ -99,17 +99,28 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Why the last refresh couldn't load everything (null when all went fine). Shown on Home.
+  String? loadError;
+
   Future<void> refresh() async {
     await syncPending();
-    try {
-      final results = await Future.wait([api.categories(), api.frequent(), api.expenses(limit: 30), api.monthSummary()]);
-      categories = results[0] as List<Category>;
-      frequent = results[1] as List<Frequent>;
-      recent = results[2] as List<Expense>;
-      summary = results[3] as Summary;
-    } catch (_) {
-      // Keep showing what we have.
+    // Load each part on its own: one failing request must not leave the others stale.
+    final errors = <String>[];
+    Future<void> load<T>(Future<T> Function() fetch, void Function(T) apply) async {
+      try {
+        apply(await fetch());
+      } catch (e) {
+        errors.add(e.toString());
+      }
     }
+
+    await Future.wait([
+      load(api.categories, (v) => categories = v),
+      load(api.frequent, (v) => frequent = v),
+      load(() => api.expenses(limit: 30), (v) => recent = v),
+      load(api.monthSummary, (v) => summary = v),
+    ]);
+    loadError = errors.isEmpty ? null : errors.first;
     notifyListeners();
   }
 

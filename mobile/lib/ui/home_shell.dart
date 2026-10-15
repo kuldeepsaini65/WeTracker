@@ -144,7 +144,8 @@ class _HomeTab extends StatelessWidget {
                   Text('Spent this month', style: TextStyle(color: scheme.onPrimary.withValues(alpha: .8))),
                   const SizedBox(height: 4),
                   Text(
-                    money(total, store.currency),
+                    // Never show a made-up ₹0 when the numbers simply failed to load.
+                    s == null && store.loadError != null ? '—' : money(total, store.currency),
                     style: theme.textTheme.displaySmall?.copyWith(color: scheme.onPrimary, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 4),
@@ -175,6 +176,25 @@ class _HomeTab extends StatelessWidget {
               ),
             ),
           ),
+          if (store.loadError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Material(
+                color: scheme.errorContainer,
+                borderRadius: BorderRadius.circular(16),
+                child: ListTile(
+                  leading: Icon(Icons.wifi_off_rounded, color: scheme.onErrorContainer),
+                  title: Text('Couldn\'t load your latest numbers', style: TextStyle(color: scheme.onErrorContainer)),
+                  subtitle: Text(
+                    store.loadError!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: scheme.onErrorContainer.withValues(alpha: .8)),
+                  ),
+                  trailing: TextButton(onPressed: store.refresh, child: const Text('Retry')),
+                ),
+              ),
+            ),
           if (store.pending.isNotEmpty)
             ListTile(
               leading: const Icon(Icons.cloud_off),
