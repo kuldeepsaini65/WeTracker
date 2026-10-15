@@ -30,7 +30,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     store.refresh();
     if (widget.openQuickAdd || store.quickAddRequested) {
       store.quickAddRequested = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) => showQuickAdd(context));
+      // Let the app finish fading in, then slide quick add up.
+      Future.delayed(const Duration(milliseconds: 420), () {
+        if (mounted) showQuickAdd(context);
+      });
     }
   }
 
