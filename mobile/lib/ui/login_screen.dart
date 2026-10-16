@@ -65,15 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Center(
-                    child: Container(
-                      width: 64,
-                      height: 64,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(color: theme.colorScheme.primary, borderRadius: BorderRadius.circular(18)),
-                      child: Icon(Icons.check_rounded, color: theme.colorScheme.onPrimary, size: 40),
-                    ),
-                  ),
+                  Center(child: Image.asset('assets/brand/logo.png', width: 84, height: 84)),
                   const SizedBox(height: 24),
                   Text(
                     _register ? 'Create your account' : 'Welcome back',

@@ -83,3 +83,53 @@ flutter build apk --release --dart-define=API_URL=https://api.example.com
 | DELETE | `/api/team/members/{id}/` | Senior removes a user |
 | GET | `/api/team/expenses/` | Seniors: every team expense, read-only (`member=` filter) |
 | GET | `/api/team/summary/` | Seniors: team totals, by person, by category, daily |
+
+## Auto-deploy (GitHub Actions)
+
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs on every push to `main`:
+
+1. **Test** (in parallel): backend checks + unit tests + Swagger validation · web type-check + build · Flutter analyze + tests.
+2. **Deploy** — only if every test passed: uploads the backend over SSH, installs requirements, backs up `db.sqlite3`
+   (keeps the last 10 in `backups/`), runs `makemigrations` + `migrate` + `collectstatic`, restarts the service, uploads the
+   website, then smoke-tests the live site. Pull requests run the tests only.
+
+The deploy never touches the server's database, `.venv`, `.env`, `staticfiles/` or `migrations/`.
+
+### One-time setup
+
+**1. A deploy key** (on your Mac):
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/wetracker_deploy -N "" -C "github-actions-deploy"
+ssh-copy-id -i ~/.ssh/wetracker_deploy.pub YOUR_USER@YOUR_SERVER
+```
+
+**2. Let that user restart the app without a password** (on the server, `sudo visudo -f /etc/sudoers.d/wetracker`):
+```
+YOUR_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart YOUR_SERVICE, /usr/bin/journalctl -u YOUR_SERVICE *
+```
+
+**3. GitHub → repo → Settings → Secrets and variables → Actions**
+
+| Secrets | Value |
+|---|---|
+| `SSH_PRIVATE_KEY` | contents of `~/.ssh/wetracker_deploy` (the file **without** `.pub`) |
+| `SSH_HOST` | server IP or hostname |
+| `SSH_USER` | `YOUR_USER` |
+
+| Variables | Example |
+|---|---|
+| `BACKEND_DIR` | `/var/www/wetracker/backend` — the folder with `manage.py` |
+| `WEB_DIR` | `/var/www/wetracker/web` — the folder nginx serves; must contain **only** the website |
+| `SERVICE_NAME` | `wetracker` — the systemd service running Django/gunicorn |
+| `SSH_PORT` *(optional)* | `22` |
+| `VENV_DIR` *(optional)* | defaults to `BACKEND_DIR/.venv` |
+
+**4. nginx** must send unknown paths to the web app, so `/privacy`, `/settings` etc. load:
+```nginx
+location / { root /var/www/wetracker/web; try_files $uri /index.html; }
+```
+
+**5. (Optional) approve each deploy**: Settings → Environments → `production` → Required reviewers.
+
+Default categories are **not** re-synced on deploy (that would restore categories people deleted). After editing
+`defaults.py`, run `python manage.py sync_default_categories` on the server once.
