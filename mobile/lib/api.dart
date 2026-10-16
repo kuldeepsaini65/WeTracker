@@ -122,6 +122,9 @@ class Api {
     return AppUser.fromJson(d['user']);
   }
 
+  /// Permanently deletes the account on the server (caller then signs out locally).
+  Future<void> deleteAccount(String password) async => request('POST', '/auth/delete-account/', body: {'password': password});
+
   Future<AppUser> me() async => AppUser.fromJson(await request('GET', '/auth/me/'));
 
   Future<AppUser> updateMe(Map<String, dynamic> data) async => AppUser.fromJson(await request('PATCH', '/auth/me/', body: data));

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../api.dart' show apiUrl;
 
 import '../store.dart';
 
@@ -147,6 +150,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextButton(
                     onPressed: () => setState(() => _register = !_register),
                     child: Text(_register ? 'Already have an account? Log in' : 'New here? Create an account'),
+                  ),
+                  TextButton(
+                    onPressed: () => launchUrl(Uri.parse('$apiUrl/privacy'), mode: LaunchMode.externalApplication),
+                    child: Text('Privacy policy', style: TextStyle(color: theme.colorScheme.outline, fontSize: 12)),
                   ),
                 ],
               ),

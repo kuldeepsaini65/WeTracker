@@ -33,7 +33,7 @@ from .serializers import (
     TeamSummarySerializer,
 )
 from .teams import (
-    TeamError, categories_for, category_owner, join_senior, leave_senior, make_senior, new_invite_code, profile_of,
+    TeamError, categories_for, category_owner, delete_account, join_senior, leave_senior, make_senior, new_invite_code, profile_of,
     team_user_ids,
 )
 
@@ -96,6 +96,20 @@ class MeView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class DeleteAccountView(APIView):
+    @extend_schema(
+        tags=['auth'], responses={204: None},
+        request=inline_serializer('DeleteAccountRequest', {'password': serializers.CharField()}),
+    )
+    def post(self, request):
+        """Permanently delete your account, expenses and categories. Requires your password.
+        If you're a senior, your users are released from your team (their data is kept)."""
+        if not request.user.check_password(request.data.get('password') or ''):
+            raise ValidationError({'password': 'Wrong password.'})
+        delete_account(request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ---------- Categories ----------

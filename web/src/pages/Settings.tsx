@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useToast } from '../components/Toast'
 import { TeamSettingsCard } from '../components/TeamCards'
 import { Button, Card, Field, Input } from '../components/ui'
+import { Link } from 'react-router-dom'
 import { api, type User } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -69,6 +70,59 @@ export function SettingsPage() {
         </ul>
       </Card>
       <Button variant="soft" onClick={logout} className="md:hidden">Log out</Button>
+      <DeleteAccountCard />
+      <p className="pb-4 text-center text-xs text-zinc-500">
+        <Link to="/privacy" className="underline">Privacy policy</Link>
+      </p>
     </div>
+  )
+}
+
+function DeleteAccountCard() {
+  const { user, logout } = useAuth()
+  const [open, setOpen] = useState(() => window.location.hash === '#delete')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const remove = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await api<void>('/auth/delete-account/', { method: 'POST', json: { password } })
+      logout()
+    } catch (err) {
+      setError((err as Error).message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="border-rose-200 dark:border-rose-500/30">
+      <div id="delete" className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-medium">Delete account</p>
+          <p className="text-sm text-zinc-500">Permanently delete your account, expenses and categories.</p>
+        </div>
+        {!open && <Button variant="ghost" className="text-rose-600 dark:text-rose-400" onClick={() => setOpen(true)}>Delete account…</Button>}
+      </div>
+      {open && (
+        <form onSubmit={remove} className="mt-4 space-y-3">
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800 dark:bg-rose-500/10 dark:text-rose-200">
+            This can't be undone.
+            {user?.role === 'senior' && ' Your users will be removed from your team but keep their own expenses.'}
+          </p>
+          <Field label="Enter your password to confirm">
+            <Input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
+          {error && <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
+          <div className="flex gap-2">
+            <Button type="submit" variant="danger" disabled={busy || !password}>Delete my account</Button>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          </div>
+        </form>
+      )}
+    </Card>
   )
 }

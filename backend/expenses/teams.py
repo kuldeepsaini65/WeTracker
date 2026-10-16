@@ -99,6 +99,17 @@ def join_senior(user, code):
 
 
 @transaction.atomic
+def delete_account(user):
+    """Permanently delete a user and everything they own.
+
+    A senior's users are released first so they get their own categories back instead of losing them.
+    """
+    for member_profile in Profile.objects.filter(senior=user).select_related('user'):
+        leave_senior(member_profile.user)
+    user.delete()  # cascades to profile, categories and expenses
+
+
+@transaction.atomic
 def leave_senior(user):
     profile = profile_of(user)
     if not profile.senior_id:

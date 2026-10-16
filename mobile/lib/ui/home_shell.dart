@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../api.dart' show apiUrl;
 import '../models.dart';
 import '../store.dart';
 import 'categories_screen.dart';
@@ -571,6 +573,62 @@ class _SettingsTabState extends State<_SettingsTab> {
     if (ok == true) _team(store.api.leaveTeam, 'You left the team');
   }
 
+  Future<void> _deleteAccount() async {
+    final pw = TextEditingController();
+    String? error;
+    var busy = false;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('Delete account?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This permanently deletes your account, expenses and categories. It can\'t be undone.'
+                '${store.user?.isSenior == true ? ' Your users will leave your team but keep their own expenses.' : ''}',
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: pw,
+                obscureText: true,
+                autofocus: true,
+                decoration: InputDecoration(labelText: 'Password', errorText: error),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: busy ? null : () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+              onPressed: busy
+                  ? null
+                  : () async {
+                      setDialog(() {
+                        busy = true;
+                        error = null;
+                      });
+                      try {
+                        await store.api.deleteAccount(pw.text);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        await store.logout();
+                      } catch (e) {
+                        setDialog(() {
+                          busy = false;
+                          error = e.toString();
+                        });
+                      }
+                    },
+              child: const Text('Delete forever'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _editBudget() async {
     final c = TextEditingController(text: store.user?.monthlyBudget?.toStringAsFixed(0) ?? '');
     final v = await showDialog<String>(
@@ -665,6 +723,17 @@ class _SettingsTabState extends State<_SettingsTab> {
         const ListTile(title: Text('Tip'), subtitle: Text('Long-press the app icon for an "Add expense" shortcut.')),
         const Divider(),
         ListTile(leading: const Icon(Icons.logout), title: const Text('Log out'), onTap: store.logout),
+        ListTile(
+          leading: const Icon(Icons.privacy_tip_outlined),
+          title: const Text('Privacy policy'),
+          onTap: () => launchUrl(Uri.parse('$apiUrl/privacy'), mode: LaunchMode.externalApplication),
+        ),
+        ListTile(
+          leading: Icon(Icons.delete_forever_outlined, color: Theme.of(context).colorScheme.error),
+          title: Text('Delete account', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          subtitle: const Text('Permanently delete your account and data'),
+          onTap: _deleteAccount,
+        ),
       ],
     );
   }

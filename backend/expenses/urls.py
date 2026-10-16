@@ -14,6 +14,7 @@ urlpatterns = [
     path('auth/login/', views.LoginView.as_view(), name='login'),
     path('auth/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('auth/me/', views.MeView.as_view(), name='me'),
+    path('auth/delete-account/', views.DeleteAccountView.as_view(), name='delete-account'),
     path('stats/summary/', views.SummaryView.as_view(), name='stats-summary'),
     path('team/', views.TeamView.as_view(), name='team'),
     path('team/become-senior/', views.BecomeSeniorView.as_view(), name='team-become-senior'),

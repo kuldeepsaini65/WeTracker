@@ -304,3 +304,31 @@ class RobustnessTests(APITestCase):
         self.assertEqual(Decimal(m['month_total']), Decimal('0'))
         m = self.client.get('/api/team/', {'tz': 'Asia/Calcutta'}).data['members'][0]
         self.assertEqual(Decimal(m['month_total']), Decimal('250'))
+
+
+class DeleteAccountTests(APITestCase):
+    def test_delete_requires_password_and_removes_everything(self):
+        r = self.client.post('/api/auth/register/', {'email': 'gone@x.com', 'password': 'super-secret-1'})
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + r.data['access'])
+        self.client.post('/api/expenses/quick/', {'text': '250 coffee'})
+        self.assertEqual(self.client.post('/api/auth/delete-account/', {'password': 'nope'}).status_code, 400)
+        self.assertTrue(User.objects.filter(email='gone@x.com').exists())
+        self.assertEqual(self.client.post('/api/auth/delete-account/', {'password': 'super-secret-1'}).status_code, 204)
+        self.assertFalse(User.objects.filter(email='gone@x.com').exists())
+        self.assertEqual(Expense.objects.count(), 0)
+
+    def test_deleting_senior_keeps_members_working(self):
+        boss = self.client.post('/api/auth/register/', {'email': 'b@x.com', 'password': 'super-secret-1',
+                                                        'account_type': 'senior'}).data
+        u = self.client.post('/api/auth/register/', {'email': 'u@x.com', 'password': 'super-secret-1',
+                                                     'invite_code': boss['user']['invite_code']}).data
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + u['access'])
+        self.client.post('/api/expenses/quick/', {'text': '60 uber'})
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + boss['access'])
+        self.assertEqual(self.client.post('/api/auth/delete-account/', {'password': 'super-secret-1'}).status_code, 204)
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + u['access'])
+        me = self.client.get('/api/auth/me/').data
+        self.assertIsNone(me['senior'])
+        self.assertTrue(me['can_manage_categories'])
+        e = self.client.get('/api/expenses/').data['results'][0]
+        self.assertEqual(e['category_detail']['name'], 'Transport')  # remapped to their own restored category

@@ -147,6 +147,10 @@ export function AuthPage() {
               {mode === 'login' ? 'Create an account' : 'Log in'}
             </button>
           </p>
+          <p className="text-center text-xs text-zinc-400">
+            By continuing you agree to our{' '}
+            <a href="/privacy" className="underline hover:text-zinc-600 dark:hover:text-zinc-300">Privacy Policy</a>.
+          </p>
         </form>
       </div>
     </div>
