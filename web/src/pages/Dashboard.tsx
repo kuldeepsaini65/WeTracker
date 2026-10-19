@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { ArrowRight, Inbox, TrendingDown, TrendingUp } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { BalanceCard } from '../components/BalanceCard'
 import { Breakdown, PeriodPicker } from '../components/Breakdown'
 import { DailyChart } from '../components/DailyChart'
 import { ExpenseList } from '../components/ExpenseList'
@@ -35,6 +36,8 @@ export function Dashboard() {
         <h1 className="text-2xl font-bold tracking-tight md:text-3xl">What did you spend?</h1>
       </div>
 
+      {user?.balance_tracking && <BalanceCard />}
+
       <Card className="p-4 md:p-5">
         <QuickAdd />
       </Card>
@@ -65,6 +68,14 @@ export function Dashboard() {
             <p className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-2 py-1 text-xs font-medium dark:bg-zinc-800">
               {delta >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
               {Math.abs(delta).toFixed(0)}% {delta >= 0 ? 'more' : 'less'} than previous {period}
+            </p>
+          )}
+          {user?.balance_tracking && (
+            <p className="mt-3 text-sm text-zinc-500">
+              Received{' '}
+              <Link to="/credits" className="font-semibold text-emerald-600 tabular-nums hover:underline dark:text-emerald-400">
+                +{money(s?.credit_total ?? 0, currency)}
+              </Link>
             </p>
           )}
           {budget !== null && <BudgetBar spent={total} budget={budget} currency={currency} />}

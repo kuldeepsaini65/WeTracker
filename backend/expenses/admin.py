@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Category, Expense, Profile
+from .models import Category, Credit, Expense, Profile
 
 
 @admin.register(Category)
@@ -13,6 +13,13 @@ class CategoryAdmin(admin.ModelAdmin):
 class ExpenseAdmin(admin.ModelAdmin):
     list_display = ('spent_at', 'amount', 'note', 'category', 'user')
     list_filter = ('user', 'category')
+    search_fields = ('note',)
+
+
+@admin.register(Credit)
+class CreditAdmin(admin.ModelAdmin):
+    list_display = ('received_at', 'amount', 'source', 'note', 'user')
+    list_filter = ('user', 'source')
     search_fields = ('note',)
 
 

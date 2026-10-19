@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api.dart' show apiUrl;
@@ -8,6 +9,7 @@ import '../models.dart';
 import '../store.dart';
 import 'categories_screen.dart';
 import 'common.dart';
+import 'credits.dart';
 import 'edit_expense_sheet.dart';
 import 'login_screen.dart' show currencies;
 import 'quick_add_sheet.dart';
@@ -143,12 +145,21 @@ class _HomeTab extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (store.user?.balanceTracking == true) ...[
+                    _BalanceHeader(store: store),
+                    const SizedBox(height: 16),
+                    Divider(color: scheme.onPrimary.withValues(alpha: .2), height: 1),
+                    const SizedBox(height: 14),
+                  ],
                   Text('Spent this month', style: TextStyle(color: scheme.onPrimary.withValues(alpha: .8))),
                   const SizedBox(height: 4),
                   Text(
                     // Never show a made-up ₹0 when the numbers simply failed to load.
                     s == null && store.loadError != null ? '—' : money(total, store.currency),
-                    style: theme.textTheme.displaySmall?.copyWith(color: scheme.onPrimary, fontWeight: FontWeight.w800),
+                    style: (store.user?.balanceTracking == true ? theme.textTheme.headlineMedium : theme.textTheme.displaySmall)?.copyWith(
+                      color: scheme.onPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -281,6 +292,20 @@ class _ExpensesTabState extends State<_ExpensesTab> {
   List<Expense>? _items;
   String _search = '';
   Timer? _debounce;
+  bool _credits = false; // Expenses | Credits
+
+  Widget _switcher() => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+    child: SegmentedButton<bool>(
+      segments: const [
+        ButtonSegment(value: false, label: Text('Expenses')),
+        ButtonSegment(value: true, label: Text('Credits')),
+      ],
+      selected: {_credits},
+      showSelectedIcon: false,
+      onSelectionChanged: (v) => setState(() => _credits = v.first),
+    ),
+  );
 
   @override
   void initState() {
@@ -307,14 +332,16 @@ class _ExpensesTabState extends State<_ExpensesTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_credits) return CreditsView(header: _switcher());
     final total = _items?.fold<double>(0, (s, e) => s + e.amount) ?? 0;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.only(bottom: 120),
         children: [
+          _switcher(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: SearchBar(
               hintText: 'Search notes',
               leading: const Icon(Icons.search),
@@ -629,6 +656,59 @@ class _SettingsTabState extends State<_SettingsTab> {
     );
   }
 
+  Future<void> _toggleBalance(bool on) async {
+    if (!on) {
+      await _update({'balance_tracking': false});
+      if (mounted) showSnack(context, 'Balance tracking off — showing expenses only');
+      return;
+    }
+    // First time: ask for the current balance. Later: just switch it back on.
+    if (store.user?.balanceStart == null) {
+      await _editOpeningBalance(firstTime: true);
+    } else {
+      await _update({'balance_tracking': true});
+    }
+  }
+
+  Future<void> _editOpeningBalance({required bool firstTime}) async {
+    final u = store.user;
+    final c = TextEditingController(text: firstTime || u == null ? '' : _trimZeros(u.openingBalance));
+    final v = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(firstTime ? 'Turn on balance tracking' : 'Opening balance'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              firstTime
+                  ? 'How much money do you have right now? Expenses and credits from now on are added to or taken from it.'
+                  : 'Your starting balance. Credits add to it, expenses are taken from it.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: c,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(labelText: 'Amount (${store.currency})', hintText: '0'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: Text(firstTime ? 'Turn on' : 'Save')),
+        ],
+      ),
+    );
+    if (v == null) return;
+    final amount = double.tryParse(v.replaceAll(',', '.')) ?? 0;
+    await _update({if (firstTime) 'balance_tracking': true, 'opening_balance': amount.toStringAsFixed(2)});
+    if (mounted) showSnack(context, firstTime ? 'Balance tracking on' : 'Opening balance updated');
+  }
+
+  static String _trimZeros(double v) => v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+
   Future<void> _editBudget() async {
     final c = TextEditingController(text: store.user?.monthlyBudget?.toStringAsFixed(0) ?? '');
     final v = await showDialog<String>(
@@ -681,6 +761,24 @@ class _SettingsTabState extends State<_SettingsTab> {
           trailing: const Icon(Icons.chevron_right),
           onTap: _editBudget,
         ),
+        SwitchListTile(
+          secondary: const Icon(Icons.account_balance_wallet_outlined),
+          title: const Text('Balance tracking'),
+          subtitle: Text(u?.balanceTracking == true ? 'Home shows balance remaining (credits − expenses)' : 'Off: shows expenses only'),
+          value: u?.balanceTracking == true,
+          onChanged: _toggleBalance,
+        ),
+        if (u?.balanceTracking == true)
+          ListTile(
+            contentPadding: const EdgeInsets.only(left: 72, right: 16),
+            title: const Text('Opening balance'),
+            subtitle: Text(
+              '${money(u!.openingBalance, store.currency)}'
+              '${u.balanceStart == null ? '' : ' · counting since ${DateFormat.yMMMd().format(u.balanceStart!)}'}',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _editOpeningBalance(firstTime: false),
+          ),
         ListTile(
           leading: const Icon(Icons.sell_outlined),
           title: const Text('Categories'),
@@ -733,6 +831,65 @@ class _SettingsTabState extends State<_SettingsTab> {
           title: Text('Delete account', style: TextStyle(color: Theme.of(context).colorScheme.error)),
           subtitle: const Text('Permanently delete your account and data'),
           onTap: _deleteAccount,
+        ),
+      ],
+    );
+  }
+}
+
+/// Top of the Home card when balance tracking is on.
+class _BalanceHeader extends StatelessWidget {
+  const _BalanceHeader({required this.store});
+  final AppStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final on = theme.colorScheme.onPrimary;
+    final b = store.balance;
+    final balance = b?.balance ?? 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.account_balance_wallet_outlined, size: 16, color: on.withValues(alpha: .8)),
+            const SizedBox(width: 6),
+            Text('Balance remaining', style: TextStyle(color: on.withValues(alpha: .8))),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          b == null ? '—' : '${balance < 0 ? '−' : ''}${money(balance.abs(), store.currency)}',
+          style: theme.textTheme.displaySmall?.copyWith(color: on, fontWeight: FontWeight.w800),
+        ),
+        if (balance < 0) Text('You\'ve spent more than you\'ve received', style: TextStyle(color: Colors.red.shade100, fontSize: 12)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 14,
+          runSpacing: 4,
+          children: [
+            // Exactly what the balance is made of, so it never looks inconsistent with the month's numbers.
+            if (b != null)
+              Text(
+                '${money(b.opening, store.currency)} + ${money(b.credits, store.currency)} − ${money(b.expenses, store.currency)}'
+                '${b.since == null ? '' : ' since ${DateFormat.MMMd().format(b.since!)}'}',
+                style: TextStyle(color: on.withValues(alpha: .85), fontSize: 13),
+              ),
+            InkWell(
+              onTap: () => showQuickAdd(context, credit: true),
+              child: Text(
+                '+ Add credit',
+                style: TextStyle(
+                  color: on,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  decoration: TextDecoration.underline,
+                  decorationColor: on,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

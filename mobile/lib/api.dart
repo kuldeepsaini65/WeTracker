@@ -198,6 +198,21 @@ class Api {
     return (d['results'] as List).map((j) => Expense.fromJson(j)).toList();
   }
 
+  // ---- Credits & balance ----
+  Future<List<Credit>> credits({String? search, int limit = 200}) async {
+    final d = await request('GET', '/credits/', query: {'limit': '$limit', if (search != null && search.isNotEmpty) 'search': search});
+    return (d['results'] as List).map((j) => Credit.fromJson(j)).toList();
+  }
+
+  Future<Credit> createCredit(Map<String, dynamic> data) async => Credit.fromJson(await request('POST', '/credits/', body: data));
+
+  Future<Credit> updateCredit(int id, Map<String, dynamic> data) async =>
+      Credit.fromJson(await request('PATCH', '/credits/$id/', body: data));
+
+  Future<void> deleteCredit(int id) async => request('DELETE', '/credits/$id/');
+
+  Future<BalanceInfo> balance() async => BalanceInfo.fromJson(await request('GET', '/balance/'));
+
   Future<Summary> monthSummary() async {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month);

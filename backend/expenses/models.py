@@ -18,6 +18,10 @@ class Profile(models.Model):
     joined_at = models.DateTimeField(null=True, blank=True)
     # Seniors only: code users enter to join.
     invite_code = models.CharField(max_length=12, unique=True, null=True, blank=True)
+    # Balance tracking (optional): balance = opening_balance + credits − expenses, counted from balance_start.
+    balance_tracking = models.BooleanField(default=False)
+    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    balance_start = models.DateTimeField(null=True, blank=True)
 
     @property
     def is_senior(self):
@@ -69,3 +73,37 @@ class Expense(models.Model):
 
     def __str__(self):
         return f'{self.amount} {self.note}'.strip()
+
+
+class Credit(models.Model):
+    """Money received (salary, refunds, gifts…). Kept apart from expenses so expense totals never change.
+    Credits are private to their owner — seniors don't see their users' credits."""
+
+    SOURCE_CHOICES = (
+        ('salary', 'Salary'),
+        ('business', 'Business'),
+        ('freelance', 'Freelance'),
+        ('gift', 'Gift'),
+        ('refund', 'Refund'),
+        ('interest', 'Interest'),
+        ('other', 'Other'),
+    )
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='credits')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    note = models.CharField(max_length=200, blank=True, default='')
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='other')
+    received_at = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Client generated id so offline-queued credits are never saved twice.
+    client_id = models.CharField(max_length=64, blank=True, null=True)
+
+    class Meta:
+        ordering = ('-received_at', '-id')
+        constraints = [
+            models.UniqueConstraint(fields=('user', 'client_id'), name='unique_credit_client_id_per_user'),
+        ]
+
+    def __str__(self):
+        return f'+{self.amount} {self.note}'.strip()

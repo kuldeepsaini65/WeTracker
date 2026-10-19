@@ -7,9 +7,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'models.dart';
 
-/// An expense waiting to be sent. Stored locally so adding is instant and works offline.
+/// An expense or credit waiting to be sent. Stored locally so adding is instant and works offline.
 class PendingExpense {
-  PendingExpense({required this.clientId, required this.amount, required this.note, this.categoryId, required this.spentAt});
+  PendingExpense({
+    required this.clientId,
+    required this.amount,
+    required this.note,
+    this.categoryId,
+    required this.spentAt,
+    this.kind = 'expense',
+    this.source = 'other',
+  });
 
   final String clientId;
   final double amount;
@@ -17,12 +25,40 @@ class PendingExpense {
   final int? categoryId;
   final DateTime spentAt;
 
+  /// 'expense' or 'credit' (items queued by older versions have no kind → expense).
+  final String kind;
+
+  /// Credits only.
+  final String source;
+
+  bool get isCredit => kind == 'credit';
+
+  /// Body for POST /expenses/ or /credits/.
+  Map<String, dynamic> payload() => isCredit
+      ? {
+          'client_id': clientId,
+          'amount': amount.toStringAsFixed(2),
+          'note': note,
+          'source': source,
+          'received_at': spentAt.toUtc().toIso8601String(),
+        }
+      : {
+          'client_id': clientId,
+          'amount': amount.toStringAsFixed(2),
+          'note': note,
+          if (categoryId != null) 'category': categoryId,
+          'spent_at': spentAt.toUtc().toIso8601String(),
+        };
+
+  /// Local storage format.
   Map<String, dynamic> toJson() => {
     'client_id': clientId,
     'amount': amount.toStringAsFixed(2),
     'note': note,
     if (categoryId != null) 'category': categoryId,
     'spent_at': spentAt.toUtc().toIso8601String(),
+    'kind': kind,
+    'source': source,
   };
 
   factory PendingExpense.fromJson(Map<String, dynamic> j) => PendingExpense(
@@ -31,6 +67,8 @@ class PendingExpense {
     note: j['note'] ?? '',
     categoryId: j['category'],
     spentAt: DateTime.parse(j['spent_at']).toLocal(),
+    kind: j['kind'] ?? 'expense',
+    source: j['source'] ?? 'other',
   );
 }
 
@@ -49,6 +87,9 @@ class AppStore extends ChangeNotifier {
   List<Frequent> frequent = [];
   List<Expense> recent = [];
   Summary? summary;
+
+  /// Loaded only while balance tracking is on.
+  BalanceInfo? balance;
   List<PendingExpense> pending = [];
   bool openQuickAddOnLaunch = true;
   bool quickAddRequested = false;
@@ -96,6 +137,7 @@ class AppStore extends ChangeNotifier {
     recent = [];
     frequent = [];
     summary = null;
+    balance = null;
     notifyListeners();
   }
 
@@ -119,7 +161,9 @@ class AppStore extends ChangeNotifier {
       load(api.frequent, (v) => frequent = v),
       load(() => api.expenses(limit: 30), (v) => recent = v),
       load(api.monthSummary, (v) => summary = v),
+      if (user?.balanceTracking == true) load(api.balance, (v) => balance = v),
     ]);
+    if (user?.balanceTracking != true) balance = null;
     loadError = errors.isEmpty ? null : errors.first;
     notifyListeners();
   }
@@ -147,19 +191,43 @@ class AppStore extends ChangeNotifier {
     return sent;
   }
 
-  /// Sends queued expenses. The server de-duplicates on client_id, so retries are safe.
+  /// Saves a credit locally first (instant), then tries to send. Returns true if it reached the server.
+  Future<bool> addCredit({required double amount, required String note, required String source, DateTime? receivedAt}) async {
+    final c = PendingExpense(
+      clientId: newClientId(),
+      amount: amount,
+      note: note,
+      spentAt: receivedAt ?? DateTime.now(),
+      kind: 'credit',
+      source: source,
+    );
+    pending.add(c);
+    await _persistPending();
+    notifyListeners();
+    final before = pending.length;
+    await syncPending();
+    final sent = pending.length < before;
+    if (sent) refresh();
+    return sent;
+  }
+
+  /// Sends queued expenses and credits. The server de-duplicates on client_id, so retries are safe.
   Future<void> syncPending() async {
     if (_syncing || pending.isEmpty) return;
     _syncing = true;
     try {
       for (final e in List.of(pending)) {
         try {
-          await api.createExpense(e.toJson());
+          if (e.isCredit) {
+            await api.createCredit(e.payload());
+          } else {
+            await api.createExpense(e.payload());
+          }
           pending.remove(e);
         } on ApiException catch (err) {
           // A 400 will never succeed (e.g. deleted category): drop the category and retry once, else give up.
-          if (err.status == 400 && e.categoryId != null) {
-            await api.createExpense({...e.toJson()}..remove('category'));
+          if (err.status == 400 && !e.isCredit && e.categoryId != null) {
+            await api.createExpense({...e.payload()}..remove('category'));
             pending.remove(e);
           } else if (err.status == 400) {
             pending.remove(e);
@@ -177,7 +245,13 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  List<Credit> get pendingCredits => pending
+      .where((p) => p.isCredit)
+      .map((p) => Credit(id: null, amount: p.amount, note: p.note, source: p.source, receivedAt: p.spentAt, pending: true))
+      .toList();
+
   List<Expense> get pendingAsExpenses => pending
+      .where((p) => !p.isCredit)
       .map(
         (p) => Expense(
           id: null,

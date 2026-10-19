@@ -7,6 +7,7 @@ from . import views
 router = DefaultRouter()
 router.register('categories', views.CategoryViewSet, basename='category')
 router.register('expenses', views.ExpenseViewSet, basename='expense')
+router.register('credits', views.CreditViewSet, basename='credit')
 router.register('team/expenses', views.TeamExpenseViewSet, basename='team-expense')
 
 urlpatterns = [
@@ -16,6 +17,7 @@ urlpatterns = [
     path('auth/me/', views.MeView.as_view(), name='me'),
     path('auth/delete-account/', views.DeleteAccountView.as_view(), name='delete-account'),
     path('stats/summary/', views.SummaryView.as_view(), name='stats-summary'),
+    path('balance/', views.BalanceView.as_view(), name='balance'),
     path('team/', views.TeamView.as_view(), name='team'),
     path('team/become-senior/', views.BecomeSeniorView.as_view(), name='team-become-senior'),
     path('team/regenerate-code/', views.RegenerateCodeView.as_view(), name='team-regenerate-code'),

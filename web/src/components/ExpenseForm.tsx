@@ -23,7 +23,8 @@ function ExpenseForm({ expense, onDone }: { expense?: Expense | null; onDone(): 
   const [amount, setAmount] = useState(expense ? String(Number(expense.amount)) : '')
   const [note, setNote] = useState(expense?.note ?? '')
   const [category, setCategory] = useState<number | null>(expense?.category ?? null)
-  const [when, setWhen] = useState(toLocalInput(expense ? new Date(expense.spent_at) : new Date()))
+  const [initialWhen] = useState(() => toLocalInput(expense ? new Date(expense.spent_at) : new Date()))
+  const [when, setWhen] = useState(initialWhen)
   const create = useCreateExpense()
   const update = useUpdateExpense()
   const del = useDeleteExpense()
@@ -31,7 +32,9 @@ function ExpenseForm({ expense, onDone }: { expense?: Expense | null; onDone(): 
 
   const save = (e: React.FormEvent) => {
     e.preventDefault()
-    const payload = { amount, note, category, spent_at: new Date(when).toISOString() }
+    // The picker only has minutes; if the time wasn't touched on a new expense, use the exact current moment.
+    const spentAt = !expense && when === initialWhen ? new Date() : new Date(when)
+    const payload = { amount, note, category, spent_at: spentAt.toISOString() }
     const opts = {
       onSuccess: () => {
         toast({ tone: 'success', message: expense ? 'Expense updated' : 'Expense added' })

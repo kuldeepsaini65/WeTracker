@@ -1,0 +1,217 @@
+# Test everything, then deploy backend + web to the production server.
+#
+# Runs on every push to main (and manually from the Actions tab). Pull requests run the tests only.
+# The deploy job starts only if ALL test jobs pass.
+#
+# One-time setup — see "Auto-deploy" in README.md:
+#   Secrets  (Settings → Secrets and variables → Actions → Secrets):
+#     SSH_PRIVATE_KEY   private key whose public key is in the server's ~/.ssh/authorized_keys
+#     SSH_HOST          server IP or hostname
+#     SSH_USER          user to log in as
+#   Variables (same page → Variables):
+#     BACKEND_DIR       e.g. /var/www/wetracker/backend      (folder containing manage.py)
+#     WEB_DIR           e.g. /var/www/wetracker/web          (folder nginx serves the website from)
+#     SERVICE_NAME      e.g. wetracker                       (systemd service running gunicorn/Django)
+#     SSH_PORT          optional, default 22
+#     VENV_DIR          optional, default $BACKEND_DIR/.venv
+#     SITE_URL          optional, default https://wetrackers.website
+
+name: Test & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Never run two deploys at once; a newer push waits for the running one.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------- tests
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12' # Ubuntu 24.04's Python, same as the server
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Django checks
+        run: python manage.py check
+      - name: Production settings check
+        env:
+          DJANGO_DEBUG: '0'
+          DJANGO_SECRET_KEY: ci-only-not-secret
+          CSRF_TRUSTED_ORIGINS: https://wetrackers.website
+        run: python manage.py check --deploy --fail-level ERROR
+      - name: Unit tests
+        run: python manage.py test --verbosity 2
+      - name: Swagger schema is valid
+        run: python manage.py spectacular --validate --fail-on-warn --file /dev/null
+
+  web:
+    name: Web build
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Type-check and build
+        run: npm run build # tsc -b && vite build; API is same-origin (/api), so no VITE_API_URL
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  mobile:
+    name: Android app checks
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.1'
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  # ---------------------------------------------------------------- deploy
+  deploy:
+    name: Deploy to production
+    needs: [backend, web, mobile]
+    # Only real pushes to main (or a manual run on main) — never pull requests.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment:
+      name: production # add "Required reviewers" to this environment to approve each deploy
+      url: ${{ vars.SITE_URL || 'https://wetrackers.website' }}
+    env:
+      SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+      BACKEND_DIR: ${{ vars.BACKEND_DIR }}
+      WEB_DIR: ${{ vars.WEB_DIR }}
+      SERVICE_NAME: ${{ vars.SERVICE_NAME }}
+      VENV_DIR: ${{ vars.VENV_DIR || format('{0}/.venv', vars.BACKEND_DIR) }}
+      SITE_URL: ${{ vars.SITE_URL || 'https://wetrackers.website' }}
+      TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check configuration
+        run: |
+          missing=0
+          for v in BACKEND_DIR WEB_DIR SERVICE_NAME; do
+            if [ -z "${!v}" ]; then echo "::error::Repository variable $v is not set"; missing=1; fi
+          done
+          [ -n "${{ secrets.SSH_HOST }}" ] || { echo "::error::Secret SSH_HOST is not set"; missing=1; }
+          [ -n "${{ secrets.SSH_USER }}" ] || { echo "::error::Secret SSH_USER is not set"; missing=1; }
+          exit $missing
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          cat >> ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName ${{ secrets.SSH_HOST }}
+            User ${{ secrets.SSH_USER }}
+            Port $SSH_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+          EOF
+          ssh deploy-target 'echo "connected to $(hostname)"'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web-dist
+
+      - name: Upload backend code
+        # Adds/updates code only (no --delete), so server-only files (gunicorn config, scripts, backups) survive.
+        # Never touches: the live database, virtualenv, secrets, collected static files, or migrations
+        # (they are git-ignored and generated on the server).
+        run: |
+          rsync -az -e ssh \
+            --exclude '.git' --exclude '.venv' --exclude 'venv' --exclude '__pycache__' --exclude '*.pyc' \
+            --exclude 'db.sqlite3' --exclude '*.sqlite3' --exclude '.env' --exclude 'staticfiles/' \
+            --exclude 'media/' --exclude 'migrations/' --exclude 'backups/' --exclude '*.log' \
+            backend/ deploy-target:"$BACKEND_DIR"/
+
+      - name: Update backend on the server
+        run: |
+          ssh deploy-target "BACKEND_DIR='$BACKEND_DIR' VENV_DIR='$VENV_DIR' SERVICE_NAME='$SERVICE_NAME' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$BACKEND_DIR"
+          # Load the service's environment (DJANGO_SECRET_KEY, DJANGO_DEBUG, …) if kept in .env
+          if [ -f .env ]; then set -a; . ./.env; set +a; fi
+          PY="$VENV_DIR/bin/python"
+          [ -x "$PY" ] || python3 -m venv "$VENV_DIR"
+          "$PY" -m pip install --quiet --upgrade pip
+          "$PY" -m pip install --quiet -r requirements.txt
+
+          # Back up the SQLite database before changing its schema (keeps the last 10).
+          if [ -f db.sqlite3 ]; then
+            mkdir -p backups
+            cp db.sqlite3 "backups/db-$(date +%Y%m%d-%H%M%S).sqlite3"
+            ls -1t backups/db-*.sqlite3 | tail -n +11 | xargs -r rm --
+          fi
+
+          "$PY" manage.py makemigrations expenses --noinput
+          "$PY" manage.py migrate --noinput
+          "$PY" manage.py collectstatic --noinput --clear >/dev/null
+          # Note: after editing default categories, run `manage.py sync_default_categories` once by hand —
+          # not on every deploy, or categories people deleted would come back.
+          "$PY" manage.py check --deploy --fail-level ERROR
+
+          sudo systemctl restart "$SERVICE_NAME"
+          sleep 3
+          systemctl is-active --quiet "$SERVICE_NAME" || { sudo journalctl -u "$SERVICE_NAME" -n 50 --no-pager; exit 1; }
+          echo "backend restarted"
+          REMOTE
+
+      - name: Upload website
+        # --delete removes old JS/CSS bundles. WEB_DIR must hold only the website; .well-known (HTTPS certs) is kept.
+        run: |
+          rsync -az --delete --exclude '.well-known' -e ssh web-dist/ deploy-target:"$WEB_DIR"/
+
+      - name: Smoke test the live site
+        run: |
+          check() { # url expected-status
+            code=$(curl -s -o /dev/null -w '%{http_code}' --retry 5 --retry-delay 3 --retry-all-errors "$1")
+            echo "$1 -> $code"
+            [ "$code" = "$2" ] || { echo "::error::$1 returned $code, expected $2"; exit 1; }
+          }
+          check "$SITE_URL/" 200
+          check "$SITE_URL/privacy" 200
+          check "$SITE_URL/api/schema/" 200
+          check "$SITE_URL/api/auth/me/" 401          # API up and requiring login
+          # The India time-zone bug: must answer 401 (auth) — never 5xx
+          check "$SITE_URL/api/stats/summary/?tz=Asia/Calcutta" 401
+
+      - name: Clean up key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

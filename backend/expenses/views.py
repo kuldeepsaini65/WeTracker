@@ -24,10 +24,12 @@ try:
 except ImportError:  # pragma: no cover
     from backports.zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .models import Category, Expense
+from .balance import balance_for
+from .models import Category, Credit, Expense
 from .quick import parse_quick, spent_at_for, suggest_category
 from .serializers import (
-    BulkCategorizeSerializer, CategoryBriefSerializer, CategorySerializer, ExpenseSerializer,
+    BalanceSerializer, BulkCategorizeSerializer, CategoryBriefSerializer, CategorySerializer, CreditSerializer,
+    ExpenseSerializer,
     FrequentExpenseSerializer, JoinTeamSerializer, MeSerializer, QuickAddSerializer,
     QuickParseResponseSerializer, RegisterSerializer, SummarySerializer, TeamExpenseSerializer, TeamSerializer,
     TeamSummarySerializer,
@@ -139,6 +141,46 @@ class CategoryViewSet(viewsets.ModelViewSet):
         """Guess a category for a note. Returns `null` when there is no confident guess."""
         category = suggest_category(request.user, request.query_params.get('note', ''))
         return Response(CategoryBriefSerializer(category).data if category else None)
+
+
+# ---------- Credits (money received) ----------
+
+class CreditFilter(filters.FilterSet):
+    start = filters.IsoDateTimeFilter(field_name='received_at', lookup_expr='gte')
+    end = filters.IsoDateTimeFilter(field_name='received_at', lookup_expr='lt')
+
+    class Meta:
+        model = Credit
+        fields = ('source', 'start', 'end')
+
+
+@extend_schema(tags=['credits'])
+class CreditViewSet(viewsets.ModelViewSet):
+    """Your credits (salary, refunds, gifts…). Private: never shown in team views."""
+    queryset = Credit.objects.none()
+    serializer_class = CreditSerializer
+    filterset_class = CreditFilter
+    search_fields = ('note',)
+    ordering_fields = ('received_at', 'amount', 'created_at')
+
+    def get_queryset(self):
+        return Credit.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        # Idempotent on client_id so retried offline submissions don't duplicate.
+        client_id = request.data.get('client_id')
+        if client_id:
+            existing = self.get_queryset().filter(client_id=client_id).first()
+            if existing:
+                return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
+        return super().create(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save(user=self.request.user)
+        except IntegrityError:
+            raise ValidationError({'client_id': 'Duplicate client_id.'})
 
 
 # ---------- Expenses ----------
@@ -344,7 +386,17 @@ class SummaryView(APIView):
         """Your totals for a period: overall, per category, per day, and the previous period of equal length."""
         start, end, tz = _period(request)
         data, _ = _summary(Expense.objects.filter(user=request.user), categories_for(request.user), start, end, tz)
+        data['credit_total'] = Credit.objects.filter(
+            user=request.user, received_at__gte=start, received_at__lt=end).aggregate(t=Sum('amount'))['t'] or Decimal('0')
         return Response(SummarySerializer(data).data)
+
+
+class BalanceView(APIView):
+    @extend_schema(tags=['credits'], responses=BalanceSerializer)
+    def get(self, request):
+        """Balance remaining = opening balance + credits − expenses, counted from when balance tracking started
+        (`since`). Turn tracking on/off and set the opening balance with PATCH /api/auth/me/."""
+        return Response(BalanceSerializer(balance_for(request.user)).data)
 
 
 # ---------- Team (seniors and their users) ----------

@@ -2,10 +2,11 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
+from django.utils import timezone
 from rest_framework import serializers
 
 from .defaults import setup_new_user
-from .models import Category, Expense, Profile
+from .models import Category, Credit, Expense, Profile
 from .teams import categories_for, category_owner, join_senior, make_senior, profile_of
 
 User = get_user_model()
@@ -81,11 +82,15 @@ class MeSerializer(serializers.ModelSerializer):
     senior = PersonBriefSerializer(source='profile.senior', read_only=True, allow_null=True)
     invite_code = serializers.CharField(source='profile.invite_code', read_only=True, allow_null=True)
     can_manage_categories = serializers.SerializerMethodField()
+    balance_tracking = serializers.BooleanField(source='profile.balance_tracking', required=False)
+    opening_balance = serializers.DecimalField(
+        source='profile.opening_balance', max_digits=14, decimal_places=2, required=False)
+    balance_start = serializers.DateTimeField(source='profile.balance_start', allow_null=True, required=False)
 
     class Meta:
         model = User
         fields = ('id', 'email', 'first_name', 'currency', 'monthly_budget', 'role', 'senior', 'invite_code',
-                  'can_manage_categories')
+                  'can_manage_categories', 'balance_tracking', 'opening_balance', 'balance_start')
         read_only_fields = ('id', 'email')
 
     def to_representation(self, instance):
@@ -101,6 +106,10 @@ class MeSerializer(serializers.ModelSerializer):
         profile = profile_of(instance)
         for key, value in profile_data.items():
             setattr(profile, key, value.upper() if key == 'currency' else value)
+        # Turning balance tracking on for the first time starts counting from now.
+        # Start of the current minute, so entries made "now" in minute-precision date pickers still count.
+        if profile.balance_tracking and profile.balance_start is None:
+            profile.balance_start = timezone.now().replace(second=0, microsecond=0)
         profile.save()
         return instance
 
@@ -187,6 +196,8 @@ class SummarySerializer(serializers.Serializer):
     start = serializers.DateTimeField()
     end = serializers.DateTimeField()
     total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    credit_total = serializers.DecimalField(max_digits=14, decimal_places=2, required=False,
+                                            help_text='Credits received in the period (yours only)')
     count = serializers.IntegerField()
     uncategorized_count = serializers.IntegerField()
     previous_total = serializers.DecimalField(max_digits=14, decimal_places=2)
@@ -234,3 +245,24 @@ class MemberTotalSerializer(serializers.Serializer):
 
 class TeamSummarySerializer(SummarySerializer):
     by_member = MemberTotalSerializer(many=True)
+
+
+class CreditSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Credit
+        fields = ('id', 'amount', 'note', 'source', 'received_at', 'client_id', 'created_at', 'updated_at')
+        read_only_fields = ('created_at', 'updated_at')
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Amount must be greater than zero.')
+        return value
+
+
+class BalanceSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    since = serializers.DateTimeField(allow_null=True)
+    opening_balance = serializers.DecimalField(max_digits=14, decimal_places=2)
+    credits = serializers.DecimalField(max_digits=14, decimal_places=2)
+    expenses = serializers.DecimalField(max_digits=14, decimal_places=2)
+    balance = serializers.DecimalField(max_digits=14, decimal_places=2)

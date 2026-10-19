@@ -7,10 +7,12 @@ import '../models.dart';
 import '../store.dart';
 import 'categories_screen.dart';
 import 'common.dart';
+import 'credits.dart';
 
 bool _sheetOpen = false;
 
-Future<void> showQuickAdd(BuildContext context) async {
+/// Opens quick add. [credit] = start in "Credit" mode (money received) instead of "Expense".
+Future<void> showQuickAdd(BuildContext context, {bool credit = false}) async {
   if (_sheetOpen) return;
   _sheetOpen = true;
   try {
@@ -19,7 +21,7 @@ Future<void> showQuickAdd(BuildContext context) async {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (_) => const QuickAddSheet(),
+      builder: (_) => QuickAddSheet(credit: credit),
     );
   } finally {
     _sheetOpen = false;
@@ -29,7 +31,10 @@ Future<void> showQuickAdd(BuildContext context) async {
 /// Amount-first entry: keypad is always on screen (no keyboard to summon), note and category
 /// are optional. Save with just an amount and it lands in the Inbox as uncategorized.
 class QuickAddSheet extends StatefulWidget {
-  const QuickAddSheet({super.key});
+  const QuickAddSheet({super.key, this.credit = false});
+
+  /// Start in credit mode.
+  final bool credit;
 
   @override
   State<QuickAddSheet> createState() => _QuickAddSheetState();
@@ -44,6 +49,8 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   bool _yesterday = false;
   Timer? _debounce;
   bool _saving = false;
+  late bool _credit = widget.credit; // Expense | Credit switch
+  String _source = 'salary';
 
   @override
   void initState() {
@@ -67,6 +74,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
 
   void _onNote(String v) {
     _debounce?.cancel();
+    if (_credit) return; // category suggestions are for expenses only
     _debounce = Timer(const Duration(milliseconds: 300), () async {
       if (v.trim().isEmpty) return setState(() => _suggested = null);
       try {
@@ -94,7 +102,38 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
     });
   }
 
+  Future<void> _saveCredit() async {
+    final a = _value;
+    if (a <= 0 || _saving) return;
+    setState(() => _saving = true);
+    HapticFeedback.mediumImpact();
+    final now = DateTime.now();
+    final messenger = ScaffoldMessenger.of(context);
+    final n = _note.text.trim();
+    final src = creditSource(_source);
+    Navigator.of(context).pop();
+    final sent = await store.addCredit(
+      amount: a,
+      note: n,
+      source: _source,
+      receivedAt: _yesterday ? now.subtract(const Duration(days: 1)) : now,
+    );
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            sent
+                ? 'Added +${money(a, store.currency)}${n.isEmpty ? '' : ' · $n'} → ${src.$3} ${src.$2}'
+                : 'Saved offline · will sync when you\'re online',
+          ),
+        ),
+      );
+  }
+
   Future<void> _save({double? amount, String? note, Category? category}) async {
+    if (_credit && amount == null) return _saveCredit();
     final a = amount ?? _value;
     if (a <= 0 || _saving) return;
     setState(() => _saving = true);
@@ -138,8 +177,27 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Expense | Credit
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(value: false, label: Text('Expense'), icon: Icon(Icons.north_east_rounded, size: 18)),
+                    ButtonSegment(value: true, label: Text('Credit'), icon: Icon(Icons.south_west_rounded, size: 18)),
+                  ],
+                  selected: {_credit},
+                  showSelectedIcon: false,
+                  style: SegmentedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    selectedBackgroundColor: _credit ? creditGreen.withValues(alpha: .18) : null,
+                  ),
+                  onSelectionChanged: (v) => setState(() => _credit = v.first),
+                ),
+              ),
+            ),
             // Frequent one-tap items
-            if (store.frequent.isNotEmpty && _amount.isEmpty)
+            if (!_credit && store.frequent.isNotEmpty && _amount.isEmpty)
               SizedBox(
                 height: 44,
                 child: ListView.separated(
@@ -163,10 +221,10 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                  money(_value, store.currency) + (_amount.endsWith('.') ? '.' : ''),
+                  (_credit && hasAmount ? '+' : '') + money(_value, store.currency) + (_amount.endsWith('.') ? '.' : ''),
                   style: theme.textTheme.displayMedium?.copyWith(
                     fontWeight: FontWeight.w800,
-                    color: hasAmount ? null : scheme.outlineVariant,
+                    color: !hasAmount ? scheme.outlineVariant : (_credit ? creditGreen : null),
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
@@ -182,7 +240,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _save(),
                 decoration: InputDecoration(
-                  hintText: 'Note (optional) — e.g. coffee',
+                  hintText: _credit ? 'Note (optional) — e.g. October salary' : 'Note (optional) — e.g. coffee',
                   prefixIcon: const Icon(Icons.edit_note),
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
@@ -190,45 +248,73 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
                 ),
               ),
             ),
-            // Categories
-            SizedBox(
-              height: 44,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                scrollDirection: Axis.horizontal,
-                // Yesterday · categories · "+ New" (when this user may create categories)
-                itemCount: store.categories.length + 1 + ((store.user?.canManageCategories ?? true) ? 1 : 0),
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (_, i) {
-                  if (i == 0) {
-                    return FilterChip(
-                      label: const Text('Yesterday'),
-                      selected: _yesterday,
-                      onSelected: (v) => setState(() => _yesterday = v),
+            // Categories (expense) or sources (credit)
+            if (_credit)
+              SizedBox(
+                height: 44,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: creditSources.length + 1,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) {
+                    if (i == 0) {
+                      return FilterChip(
+                        label: const Text('Yesterday'),
+                        selected: _yesterday,
+                        onSelected: (v) => setState(() => _yesterday = v),
+                      );
+                    }
+                    final s = creditSources[i - 1];
+                    return ChoiceChip(
+                      avatar: Text(s.$3),
+                      label: Text(s.$2),
+                      selected: _source == s.$1,
+                      selectedColor: creditGreen.withValues(alpha: .22),
+                      onSelected: (_) => setState(() => _source = s.$1),
                     );
-                  }
-                  if (i > store.categories.length) {
-                    return ActionChip(
-                      avatar: const Icon(Icons.add, size: 18),
-                      label: const Text('New'),
-                      onPressed: () async {
-                        final created = await showCategoryEditor(context);
-                        if (created != null && mounted) setState(() => _picked = created);
-                      },
+                  },
+                ),
+              )
+            else
+              SizedBox(
+                height: 44,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  scrollDirection: Axis.horizontal,
+                  // Yesterday · categories · "+ New" (when this user may create categories)
+                  itemCount: store.categories.length + 1 + ((store.user?.canManageCategories ?? true) ? 1 : 0),
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (_, i) {
+                    if (i == 0) {
+                      return FilterChip(
+                        label: const Text('Yesterday'),
+                        selected: _yesterday,
+                        onSelected: (v) => setState(() => _yesterday = v),
+                      );
+                    }
+                    if (i > store.categories.length) {
+                      return ActionChip(
+                        avatar: const Icon(Icons.add, size: 18),
+                        label: const Text('New'),
+                        onPressed: () async {
+                          final created = await showCategoryEditor(context);
+                          if (created != null && mounted) setState(() => _picked = created);
+                        },
+                      );
+                    }
+                    final c = store.categories[i - 1];
+                    final selected = _category?.id == c.id;
+                    return ChoiceChip(
+                      avatar: Text(c.icon),
+                      label: Text(c.name),
+                      selected: selected,
+                      selectedColor: hexColor(c.color).withValues(alpha: .25),
+                      onSelected: (_) => setState(() => _picked = _picked?.id == c.id ? null : c),
                     );
-                  }
-                  final c = store.categories[i - 1];
-                  final selected = _category?.id == c.id;
-                  return ChoiceChip(
-                    avatar: Text(c.icon),
-                    label: Text(c.name),
-                    selected: selected,
-                    selectedColor: hexColor(c.color).withValues(alpha: .25),
-                    onSelected: (_) => setState(() => _picked = _picked?.id == c.id ? null : c),
-                  );
-                },
+                  },
+                ),
               ),
-            ),
             const SizedBox(height: 8),
             _Keypad(onKey: _key),
             Padding(
@@ -236,11 +322,19 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
               child: FilledButton.icon(
                 onPressed: hasAmount && !_saving ? () => _save() : null,
                 style: FilledButton.styleFrom(
+                  backgroundColor: _credit ? creditGreen : null,
+                  foregroundColor: _credit ? Colors.white : null,
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
                 ),
                 icon: const Icon(Icons.check_rounded),
-                label: Text(hasAmount ? 'Save${_category == null ? '' : ' to ${_category!.name}'}' : 'Enter amount'),
+                label: Text(
+                  !hasAmount
+                      ? 'Enter amount'
+                      : _credit
+                      ? 'Add credit · ${creditSource(_source).$2}'
+                      : 'Save${_category == null ? '' : ' to ${_category!.name}'}',
+                ),
               ),
             ),
           ],

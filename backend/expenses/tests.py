@@ -332,3 +332,92 @@ class DeleteAccountTests(APITestCase):
         self.assertTrue(me['can_manage_categories'])
         e = self.client.get('/api/expenses/').data['results'][0]
         self.assertEqual(e['category_detail']['name'], 'Transport')  # remapped to their own restored category
+
+
+class CreditAndBalanceTests(APITestCase):
+    def setUp(self):
+        r = self.client.post('/api/auth/register/', {'email': 'c@x.com', 'password': 'super-secret-1'})
+        self.access = r.data['access']
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + self.access)
+        self.assertFalse(r.data['user']['balance_tracking'])  # off by default: app behaves exactly as before
+
+    def test_credit_crud_validation_and_idempotency(self):
+        r = self.client.post('/api/credits/', {'amount': '50000', 'note': 'October salary', 'source': 'salary',
+                                               'client_id': 'k1'})
+        self.assertEqual(r.status_code, 201, r.data)
+        again = self.client.post('/api/credits/', {'amount': '50000', 'source': 'salary', 'client_id': 'k1'})
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(self.client.get('/api/credits/').data['count'], 1)
+        self.assertEqual(self.client.post('/api/credits/', {'amount': '0'}).status_code, 400)
+        self.assertEqual(self.client.post('/api/credits/', {'amount': '5', 'source': 'lottery'}).status_code, 400)
+        cid = r.data['id']
+        self.assertEqual(self.client.patch(f'/api/credits/{cid}/', {'amount': '52000'}).data['amount'], '52000.00')
+        self.assertEqual(self.client.delete(f'/api/credits/{cid}/').status_code, 204)
+
+    def test_credits_never_change_expense_numbers(self):
+        self.client.post('/api/expenses/quick/', {'text': '250 coffee'})
+        self.client.post('/api/credits/', {'amount': '10000', 'source': 'salary'})
+        s = self.client.get('/api/stats/summary/?tz=Asia/Kolkata').data
+        self.assertEqual(Decimal(s['total']), Decimal('250'))         # expenses only, as before
+        self.assertEqual(s['count'], 1)
+        self.assertEqual(Decimal(s['credit_total']), Decimal('10000'))
+        self.assertEqual(self.client.get('/api/expenses/').data['count'], 1)
+
+    def test_balance_counts_from_when_tracking_started(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        old = timezone.now() - timedelta(days=30)
+        Expense.objects.create(user=User.objects.get(email='c@x.com'), amount=999, note='before', spent_at=old)
+        me = self.client.patch('/api/auth/me/', {'balance_tracking': True, 'opening_balance': '5000'}, format='json').data
+        self.assertTrue(me['balance_tracking'])
+        self.assertIsNotNone(me['balance_start'])
+        self.client.post('/api/expenses/quick/', {'text': '1200 groceries'})
+        self.client.post('/api/credits/', {'amount': '20000', 'source': 'salary'})
+        b = self.client.get('/api/balance/').data
+        self.assertTrue(b['enabled'])
+        self.assertEqual(Decimal(b['opening_balance']), Decimal('5000'))
+        self.assertEqual(Decimal(b['credits']), Decimal('20000'))
+        self.assertEqual(Decimal(b['expenses']), Decimal('1200'))   # the old ₹999 is before tracking started
+        self.assertEqual(Decimal(b['balance']), Decimal('23800'))
+        # Turning it off and on again keeps the original start
+        self.client.patch('/api/auth/me/', {'balance_tracking': False}, format='json')
+        again = self.client.patch('/api/auth/me/', {'balance_tracking': True}, format='json').data
+        self.assertEqual(again['balance_start'], me['balance_start'])
+
+    def test_credits_are_private_even_from_seniors(self):
+        boss = self.client.post('/api/auth/register/', {'email': 'boss2@x.com', 'password': 'super-secret-1',
+                                                        'account_type': 'senior'}).data
+        self.client.post('/api/team/join/', {'code': boss['user']['invite_code']})
+        self.client.post('/api/credits/', {'amount': '7000', 'source': 'gift'})
+        self.client.post('/api/expenses/quick/', {'text': '60 uber'})
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + boss['access'])
+        self.assertEqual(self.client.get('/api/credits/').data['count'], 0)
+        team = self.client.get('/api/team/summary/').data
+        self.assertEqual(Decimal(team['total']), Decimal('60'))
+        self.assertNotIn('credit_total', team)
+
+    def test_account_deletion_removes_credits(self):
+        from .models import Credit
+
+        self.client.post('/api/credits/', {'amount': '100'})
+        self.client.post('/api/auth/delete-account/', {'password': 'super-secret-1'})
+        self.assertEqual(Credit.objects.count(), 0)
+
+
+class BalanceStartTests(APITestCase):
+    def test_entries_from_the_same_minute_count(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        r = self.client.post('/api/auth/register/', {'email': 'm@x.com', 'password': 'super-secret-1'})
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + r.data['access'])
+        me = self.client.patch('/api/auth/me/', {'balance_tracking': True}, format='json').data
+        start = timezone.datetime.fromisoformat(me['balance_start'].replace('Z', '+00:00'))
+        self.assertEqual(start.second, 0)
+        # A minute-precision picker sends the start of the current minute
+        self.client.post('/api/credits/', {'amount': '45000', 'received_at': start.isoformat()})
+        self.client.post('/api/credits/', {'amount': '1', 'received_at': (start - timedelta(seconds=1)).isoformat()})
+        self.assertEqual(Decimal(self.client.get('/api/balance/').data['credits']), Decimal('45000'))

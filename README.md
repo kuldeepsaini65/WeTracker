@@ -20,6 +20,14 @@ Expense tracker built around **fast entry**: if logging takes more than a couple
 - **Android:** opens straight to an on-screen keypad (toggle in Settings), long-press the app icon → *Add expense*,
   and entries are queued **offline** and synced later (server de-duplicates by `client_id`).
 
+## Credits & balance (optional)
+
+- **Credits** — money you receive (salary, business, freelance, gift, refund, interest, other). Web: *Credits* page;
+  Android: *Expenses → Credits*, or the **Expense | Credit** switch in quick add. Credits never change expense totals.
+- **Balance tracking** (Settings, off by default) — off: the app shows expenses only, exactly as before. On: Home also shows
+  **balance remaining = opening balance + credits − expenses**, counted from when you turned it on (editable).
+- Credits and balance are private: seniors never see their users' credits.
+
 ## Seniors and their users
 
 - **Senior** — signs up as "I'm a senior" (or taps *Become a senior* in Settings) and gets an 8-character **invite code**
@@ -76,7 +84,9 @@ flutter build apk --release --dart-define=API_URL=https://api.example.com
 | POST | `/api/expenses/quick/preview/` | Parse without saving (live preview) |
 | POST | `/api/expenses/bulk-categorize/` | Categorise many at once |
 | GET | `/api/expenses/frequent/` | One-tap repeat candidates |
-| GET | `/api/stats/summary/` | Totals, by-category, daily, previous period |
+| GET | `/api/stats/summary/` | Totals, by-category, daily, previous period, `credit_total` |
+| CRUD | `/api/credits/` | Money received (salary, refund…). Private — never in team views. Filters: `start`, `end`, `source`, `search` |
+| GET | `/api/balance/` | Opening balance + credits − expenses since tracking started. Toggle with `PATCH /api/auth/me/ {balance_tracking}` |
 | GET | `/api/team/` | Seniors: invite code + members with this month's totals. Users: their senior |
 | POST | `/api/team/become-senior/`, `/api/team/regenerate-code/` | Senior setup |
 | POST | `/api/team/join/`, `/api/team/leave/` | Join / leave with an invite code |

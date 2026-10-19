@@ -73,6 +73,7 @@ class _WeTrackerAppState extends State<WeTrackerApp> {
           // Cross-fade between login and the app (and back on logout)
           builder: (_, _) => AnimatedSwitcher(
             duration: const Duration(milliseconds: 350),
+            layoutBuilder: fullScreenSwitcherLayout,
             child: store.user == null
                 ? const LoginScreen(key: ValueKey('login'))
                 : HomeShell(key: ValueKey(store.user!.email), openQuickAdd: store.openQuickAddOnLaunch),

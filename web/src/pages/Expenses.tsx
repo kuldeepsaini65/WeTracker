@@ -2,6 +2,7 @@ import { Plus, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ExpenseFormModal } from '../components/ExpenseForm'
 import { ExpenseList } from '../components/ExpenseList'
+import { MoneyTabs } from '../components/MoneyTabs'
 import { Button, Card, Chip, Empty, Input } from '../components/ui'
 import { useCurrency } from '../lib/auth'
 import { money } from '../lib/format'
@@ -31,11 +32,14 @@ export function Expenses() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">Expenses</h1>
-        <Button variant="soft" onClick={() => setAdding(true)}>
-          <Plus className="size-4" /> Detailed add
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <MoneyTabs />
+          <Button variant="soft" onClick={() => setAdding(true)}>
+            <Plus className="size-4" /> Detailed add
+          </Button>
+        </div>
       </div>
 
       <div className="relative">

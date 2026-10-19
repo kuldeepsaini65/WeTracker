@@ -19,6 +19,9 @@ class AppUser {
     this.senior,
     this.inviteCode,
     this.canManageCategories = true,
+    this.balanceTracking = false,
+    this.openingBalance = 0,
+    this.balanceStart,
   });
 
   final int id;
@@ -39,6 +42,13 @@ class AppUser {
   /// False for users in a senior's team — the senior owns the category list.
   final bool canManageCategories;
 
+  /// Off: expenses only. On: Home also shows balance remaining (opening + credits − expenses).
+  final bool balanceTracking;
+  final double openingBalance;
+
+  /// When balance counting started.
+  final DateTime? balanceStart;
+
   bool get isSenior => role == 'senior';
 
   factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
@@ -51,6 +61,9 @@ class AppUser {
     senior: j['senior'] == null ? null : Person.fromJson(j['senior']),
     inviteCode: j['invite_code'],
     canManageCategories: j['can_manage_categories'] ?? true,
+    balanceTracking: j['balance_tracking'] ?? false,
+    openingBalance: double.tryParse('${j['opening_balance']}') ?? 0,
+    balanceStart: j['balance_start'] == null ? null : DateTime.parse(j['balance_start']).toLocal(),
   );
 }
 
@@ -129,6 +142,7 @@ class Summary {
     required this.previousTotal,
     required this.uncategorizedCount,
     required this.byCategory,
+    this.creditTotal = 0,
   });
 
   final double total;
@@ -136,6 +150,9 @@ class Summary {
   final double previousTotal;
   final int uncategorizedCount;
   final List<CategoryTotal> byCategory;
+
+  /// Credits received in the period.
+  final double creditTotal;
 
   factory Summary.fromJson(Map<String, dynamic> j) => Summary(
     total: double.parse(j['total'].toString()),
@@ -145,6 +162,7 @@ class Summary {
     byCategory: (j['by_category'] as List)
         .map((r) => CategoryTotal(r['category'] == null ? null : Category.fromJson(r['category']), double.parse(r['total'].toString())))
         .toList(),
+    creditTotal: double.tryParse('${j['credit_total']}') ?? 0,
   );
 }
 
@@ -172,5 +190,52 @@ class TeamMember {
     uncategorizedCount: j['uncategorized_count'],
     lastSpentAt: j['last_spent_at'] == null ? null : DateTime.parse(j['last_spent_at']).toLocal(),
     isSenior: j['is_senior'] ?? false,
+  );
+}
+
+/// Money received (salary, refund, gift…). Private to its owner.
+class Credit {
+  Credit({
+    required this.id,
+    required this.amount,
+    required this.note,
+    required this.source,
+    required this.receivedAt,
+    this.pending = false,
+  });
+
+  final int? id;
+  final double amount;
+  final String note;
+  final String source;
+  final DateTime receivedAt;
+
+  /// True while waiting in the offline queue.
+  final bool pending;
+
+  factory Credit.fromJson(Map<String, dynamic> j) => Credit(
+    id: j['id'],
+    amount: double.parse(j['amount'].toString()),
+    note: j['note'] ?? '',
+    source: j['source'] ?? 'other',
+    receivedAt: DateTime.parse(j['received_at']).toLocal(),
+  );
+}
+
+class BalanceInfo {
+  BalanceInfo({required this.since, required this.opening, required this.credits, required this.expenses, required this.balance});
+
+  final DateTime? since;
+  final double opening;
+  final double credits;
+  final double expenses;
+  final double balance;
+
+  factory BalanceInfo.fromJson(Map<String, dynamic> j) => BalanceInfo(
+    since: j['since'] == null ? null : DateTime.parse(j['since']).toLocal(),
+    opening: double.parse(j['opening_balance'].toString()),
+    credits: double.parse(j['credits'].toString()),
+    expenses: double.parse(j['expenses'].toString()),
+    balance: double.parse(j['balance'].toString()),
   );
 }

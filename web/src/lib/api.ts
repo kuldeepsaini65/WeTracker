@@ -20,6 +20,11 @@ export interface User {
   /** Seniors only. */
   invite_code: string | null
   can_manage_categories: boolean
+  /** Show "balance remaining" (opening balance + credits − expenses). Off = expenses only. */
+  balance_tracking: boolean
+  opening_balance: string
+  /** When balance counting started (set the first time tracking is turned on). */
+  balance_start: string | null
 }
 
 export interface TeamMember extends Person {
@@ -90,10 +95,34 @@ export interface TeamSummary extends Summary {
   by_member: { member: Person; total: string; count: number }[]
 }
 
+export type CreditSource = 'salary' | 'business' | 'freelance' | 'gift' | 'refund' | 'interest' | 'other'
+
+export interface Credit {
+  id: number
+  amount: string
+  note: string
+  source: CreditSource
+  received_at: string
+  client_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Balance {
+  enabled: boolean
+  since: string | null
+  opening_balance: string
+  credits: string
+  expenses: string
+  balance: string
+}
+
 export interface Summary {
   start: string
   end: string
   total: string
+  /** Credits received in the period (own summary only). */
+  credit_total?: string
   count: number
   uncategorized_count: number
   previous_total: string

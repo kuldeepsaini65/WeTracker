@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  api, qs, TZ, type Category, type Expense, type Frequent, type Paginated, type QuickPreview, type Summary, type Team,
+  api, qs, TZ, type Balance, type Category, type Credit, type CreditSource, type Expense, type Frequent, type Paginated, type QuickPreview, type Summary, type Team,
   type TeamExpense, type TeamSummary, type User,
 } from './api'
 
@@ -153,6 +153,58 @@ export function useTeamAction<V = void>(fn: (v: V) => Promise<unknown>) {
       if (data && typeof data === 'object' && 'can_manage_categories' in data) qc.setQueryData(['me'], data as User)
       else await qc.invalidateQueries({ queryKey: ['me'] })
       await qc.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'me' })
+    },
+  })
+}
+
+// ---------- Credits & balance ----------
+
+export function useCredits(f: { search?: string; start?: string; end?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['credits', 'list', f],
+    queryFn: () => api<Paginated<Credit>>(`/credits/${qs({ ...f, limit: f.limit ?? 100 })}`),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** Lives under the 'expenses' key so any expense change refreshes the balance too. */
+export function useBalance(enabled: boolean) {
+  return useQuery({ queryKey: ['expenses', 'balance'], queryFn: () => api<Balance>('/balance/'), enabled })
+}
+
+export type CreditInput = { amount: string; note: string; source: CreditSource; received_at?: string; client_id?: string }
+
+function useInvalidateMoney() {
+  const qc = useQueryClient()
+  return () => Promise.all([qc.invalidateQueries({ queryKey: ['credits'] }), qc.invalidateQueries({ queryKey: ['expenses'] })])
+}
+
+export function useSaveCredit() {
+  const invalidate = useInvalidateMoney()
+  return useMutation({
+    mutationFn: ({ id, ...v }: Partial<CreditInput> & { id?: number }) =>
+      id ? api<Credit>(`/credits/${id}/`, { method: 'PATCH', json: v }) : api<Credit>('/credits/', { method: 'POST', json: v }),
+    onSettled: invalidate,
+  })
+}
+
+export function useDeleteCredit() {
+  const invalidate = useInvalidateMoney()
+  return useMutation({
+    mutationFn: (id: number) => api<void>(`/credits/${id}/`, { method: 'DELETE' }),
+    onSettled: invalidate,
+  })
+}
+
+/** Update the signed-in user's settings (PATCH /auth/me/) and refresh everything that depends on them. */
+export function useUpdateMe() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: Partial<Pick<User, 'balance_tracking' | 'opening_balance' | 'balance_start'>>) =>
+      api<User>('/auth/me/', { method: 'PATCH', json: v }),
+    onSuccess: (u) => {
+      qc.setQueryData(['me'], u)
+      return qc.invalidateQueries({ queryKey: ['expenses', 'balance'] })
     },
   })
 }

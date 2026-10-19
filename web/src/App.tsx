@@ -4,6 +4,7 @@ import { Spinner } from './components/ui'
 import { useAuth } from './lib/auth'
 import { AuthPage } from './pages/Auth'
 import { Categories } from './pages/Categories'
+import { CreditsPage } from './pages/Credits'
 import { Dashboard } from './pages/Dashboard'
 import { Expenses } from './pages/Expenses'
 import { InboxPage } from './pages/Inbox'
@@ -29,6 +30,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="expenses" element={<Expenses />} />
+        <Route path="credits" element={<CreditsPage />} />
         <Route path="inbox" element={<InboxPage />} />
         <Route path="categories" element={<Categories />} />
         <Route path="settings" element={<SettingsPage />} />

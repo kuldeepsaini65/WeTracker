@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 // Change this to a mailbox you actually read — it's shown publicly and on the Play Store listing.
 export const CONTACT_EMAIL = 'support@wetrackers.website'
-const UPDATED = '16 October 2026'
+const UPDATED = '18 October 2026'
 
 function LegalLayout({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -37,7 +37,8 @@ export function PrivacyPage() {
       <ul className="list-disc space-y-1 pl-5">
         <li><b>Account details</b>: your name (optional), email address and password. Passwords are stored only as a secure hash.</li>
         <li><b>Expenses you add</b>: amount, note, category, date and time.</li>
-        <li><b>Settings</b>: currency, monthly budget, your categories and their keywords.</li>
+        <li><b>Credits you add</b> (optional): money you received — amount, note, source (e.g. salary, refund) and date.</li>
+        <li><b>Settings</b>: currency, monthly budget, balance tracking and opening balance, your categories and their keywords.</li>
         <li><b>Team membership</b>: if you join a senior with an invite code, or invite users as a senior.</li>
       </ul>
       <p>
@@ -54,7 +55,8 @@ export function PrivacyPage() {
       <H2>Who can see your data</H2>
       <p>
         Only you, unless you join a <b>senior</b>. If you join a senior's team with their invite code, that senior can
-        see the expenses you add while you are on their team. You can leave the team at any time in Settings.
+        see the expenses you add while you are on their team. Your <b>credits and balance are always private</b> —
+        seniors never see them. You can leave the team at any time in Settings.
       </p>
 
       <H2>Storage and security</H2>
@@ -99,7 +101,7 @@ export function DeleteAccountInfoPage() {
       <H2>What gets deleted</H2>
       <ul className="list-disc space-y-1 pl-5">
         <li>Your account (name, email, password).</li>
-        <li>All your expenses, categories and settings.</li>
+        <li>All your expenses, credits, categories and settings.</li>
         <li>If you're a senior: your team is closed. Your users keep their own expenses and get their own categories back.</li>
       </ul>
       <p>Deletion happens immediately and cannot be undone. We do not keep copies of deleted data.</p>

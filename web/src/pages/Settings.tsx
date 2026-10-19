@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useToast } from '../components/Toast'
+import { BalanceSettingsCard } from '../components/BalanceSettings'
 import { TeamSettingsCard } from '../components/TeamCards'
 import { Button, Card, Field, Input } from '../components/ui'
 import { Link } from 'react-router-dom'
@@ -61,6 +62,7 @@ export function SettingsPage() {
           <Button type="submit" disabled={saving}>Save</Button>
         </form>
       </Card>
+      <BalanceSettingsCard />
       <TeamSettingsCard />
       <Card>
         <p className="font-medium">Keyboard shortcuts</p>

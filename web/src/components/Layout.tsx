@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Inbox, LayoutDashboard, ListOrdered, LogOut, Moon, Plus, Settings, Sun, Tags, Users } from 'lucide-react'
+import { Inbox, LayoutDashboard, ListOrdered, LogOut, Moon, Plus, Settings, Sun, Tags, Users, Wallet } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
@@ -15,6 +15,7 @@ const EXPENSES: NavItem = { to: '/expenses', label: 'Expenses', icon: ListOrdere
 const INBOX: NavItem = { to: '/inbox', label: 'Inbox', icon: Inbox, badge: true }
 const TEAM: NavItem = { to: '/team', label: 'Team', icon: Users }
 const CATEGORIES: NavItem = { to: '/categories', label: 'Categories', icon: Tags }
+const CREDITS: NavItem = { to: '/credits', label: 'Credits', icon: Wallet }
 const SETTINGS: NavItem = { to: '/settings', label: 'Settings', icon: Settings }
 
 function useTheme() {
@@ -42,7 +43,9 @@ export function Layout() {
   const { data: summary } = useSummary(start, end)
   const inboxCount = summary?.uncategorized_count ?? 0
   const isSenior = user?.role === 'senior'
-  const nav = isSenior ? [HOME, TEAM, EXPENSES, INBOX, CATEGORIES, SETTINGS] : [HOME, EXPENSES, INBOX, CATEGORIES, SETTINGS]
+  const nav = isSenior
+    ? [HOME, TEAM, EXPENSES, CREDITS, INBOX, CATEGORIES, SETTINGS]
+    : [HOME, EXPENSES, CREDITS, INBOX, CATEGORIES, SETTINGS]
   // Mobile bottom bar: 4 links around the add button. Seniors swap Expenses for Team; Settings moves to the header.
   const mobileNav = isSenior ? [HOME, TEAM, INBOX, EXPENSES] : [HOME, EXPENSES, INBOX, SETTINGS]
 
