@@ -102,7 +102,8 @@ flutter:
 # App icon — regenerate with: dart run flutter_launcher_icons
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
+  remove_alpha_ios: true
   image_path: assets/brand/logo.png
   adaptive_icon_background: "#7C3AED"
   adaptive_icon_foreground: assets/brand/foreground.png
@@ -115,5 +116,5 @@ flutter_native_splash:
   android_12:
     color: "#7C3AED"
     image: assets/brand/splash.png
-  ios: false
+  ios: true
   web: false
